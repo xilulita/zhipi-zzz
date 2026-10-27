@@ -1,0 +1,59 @@
+{
+  "name": "zhipi-zuowen-desktop",
+  "version": "1.2.5",
+  "description": "智批作文桌面版",
+  "private": true,
+  "main": "electron/main.js",
+  "author": "智批作文",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.zhipi.zuowen",
+    "productName": "智批作文",
+    "artifactName": "智批作文-安装程序-${version}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "assets/**/*",
+      "electron/**/*",
+      "build/icon.ico",
+      "build/icon.png",
+      "!assets/*.part.*"
+    ],
+    "asar": true,
+    "compression": "maximum",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "智批作文",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  }
+}

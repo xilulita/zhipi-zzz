@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>智批作文 · AI 作文智能批改</title>
+<link rel="stylesheet" href="assets/style.css?v=20261101s">
+<link rel="stylesheet" href="assets/board.css?v=20261101s">
+<link rel="stylesheet" href="assets/drill.css?v=20261101s">
+<style>
+/* ===== 网页版启动画面（首帧内联，避免白屏闪烁） ===== */
+#zp-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 26% 14%,rgba(255,255,255,.20),transparent 32%),linear-gradient(135deg,#3a34a8 0%,#5b46cf 46%,#8d5ce4 100%);
+  color:#fff;font-family:"Microsoft YaHei","PingFang SC",sans-serif;overflow:hidden;
+  pointer-events:none;transition:opacity .48s ease,visibility .48s ease}
+#zp-splash.zp-hide{opacity:0;visibility:hidden;pointer-events:none}
+#zp-splash:before,#zp-splash:after{content:"";position:absolute;border-radius:50%}
+#zp-splash:before{width:460px;height:460px;right:-170px;top:-210px;background:rgba(255,255,255,.10)}
+#zp-splash:after{width:420px;height:420px;left:-190px;bottom:-215px;background:rgba(28,20,96,.24)}
+.zps-main{position:relative;z-index:1;display:flex;align-items:center;gap:34px;transform:translateY(-10px);
+  animation:zpsIn .62s cubic-bezier(.22,.9,.3,1) both}
+.zps-icon{width:118px;height:118px;border-radius:30px;box-shadow:0 18px 44px rgba(26,18,88,.36),inset 0 0 0 1px rgba(255,255,255,.24)}
+.zps-h1{margin:0 0 10px;font-size:38px;font-weight:800;letter-spacing:5px;text-shadow:0 5px 20px rgba(26,18,88,.30)}
+.zps-p{margin:0;font-size:14px;letter-spacing:5.5px;color:rgba(255,255,255,.86)}
+.zps-status{position:absolute;left:0;right:0;bottom:52px;z-index:1;text-align:center;font-size:12px;
+  letter-spacing:1.6px;color:rgba(255,255,255,.82)}
+.zps-bar{width:210px;height:3px;margin:11px auto 0;border-radius:9px;background:rgba(255,255,255,.18);overflow:hidden}
+.zps-bar i{display:block;width:40%;height:100%;border-radius:9px;
+  background:linear-gradient(90deg,transparent,#fff,transparent);animation:zpsLoad 1.15s ease-in-out infinite}
+@keyframes zpsLoad{0%{transform:translateX(-120%)}100%{transform:translateX(360%)}}
+@keyframes zpsIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(-10px) scale(1)}}
+@media (max-width:640px){
+  .zps-main{flex-direction:column;gap:16px;text-align:center}
+  .zps-icon{width:86px;height:86px;border-radius:22px}
+  .zps-h1{font-size:27px;letter-spacing:3px}
+  .zps-p{font-size:11.5px;letter-spacing:3px}
+  .zps-status{bottom:34px}
+}
+@media (prefers-reduced-motion:reduce){.zps-main{animation:none}.zps-bar i{animation:none;width:100%;opacity:.5}}
+</style>
+</head>
+<body>
+<script>window.__zpBootAt=Date.now();</script>
+<div id="zp-splash" role="status" aria-label="智批作文正在启动">
+  <div class="zps-main">
+    <img class="zps-icon" src="assets/app-icon.png" alt="">
+    <div>
+      <h1 class="zps-h1">智批作文</h1>
+      <p class="zps-p">让每一次修改都有方向</p>
+    </div>
+  </div>
+  <div class="zps-status">正在准备批改工作台<div class="zps-bar"><i></i></div></div>
+</div>
+<div class="aurora"><i></i><i></i><i></i><i></i></div>
+
+<div class="app">
+  <!-- ================= 左侧功能栏 240px ================= -->
+  <aside class="side panel">
+    <div class="side-head">
+      <div class="logo">智</div>
+      <div class="brand">智批作文<small>AI ESSAY GRADER</small></div>
+      <button class="bell" id="btnBell" title="消息提醒" aria-label="消息提醒">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+          stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"/>
+          <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+        </svg>
+        <i class="bell-dot" id="bellDot" hidden></i>
+      </button>
+    </div>
+    <div class="bell-pop" id="bellPop" hidden></div>
+    <div class="side-scroll">
+
+      <div class="field">
+        <div class="cap">学生姓名 <span class="opt">选填</span></div>
+        <input class="input input-sm" id="noteInput" type="text" maxlength="20" placeholder="选填，便于区分多份作文">
+      </div>
+
+      <div class="field">
+        <div class="cap">作文体裁</div>
+        <div class="chips" id="genreChips"></div>
+      </div>
+
+      <div class="field">
+        <div class="cap">选择年级</div>
+        <div class="gsel" id="gradeSelect">
+          <button class="gsel-btn" id="gselBtn" type="button">
+            <span class="gsel-pick" id="gselPick">六年级<i>550~650字</i></span>
+            <svg class="gsel-arw" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="gsel-menu" id="gselMenu"></div>
+        </div>
+      </div>
+
+      <div class="field upload-field">
+        <div class="cap">添加作文图片</div>
+        <div class="drop" id="dropZone">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="t">点击或拖拽上传</div>
+          <div class="s">JPG / PNG · 自动压缩 · 支持多张</div>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+        <div class="upload-hint" id="uploadHint" style="display:none"></div>
+      </div>
+      <div class="ai-deploy" id="aiDeploy">
+        <div class="ad-head" id="adHead">
+          <span class="ad-ttl">AI 部署</span>
+          <span class="ad-cur" id="adCur">未配置</span>
+          <svg class="ad-arw" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="ad-body" id="adBody">
+          <div class="ad-tabs">
+            <button class="ad-tab on" data-mode="api">AI 接口</button>
+            <button class="ad-tab" data-mode="local">本地部署</button>
+          </div>
+
+          <div class="ad-pane on" data-pane="api">
+            <div class="ad-row"><label>服务商</label>
+              <select class="input input-sm" id="adProvider">
+                <option value="openai">OpenAI 兼容</option>
+                <option value="qwen">通义千问</option>
+                <option value="zhipu">智谱 GLM</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="ad-row"><label>接口地址</label>
+              <input class="input input-sm" id="adBase" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="ad-row"><label>API Key</label>
+              <input class="input input-sm" id="adKey" type="password" placeholder="sk-...">
+            </div>
+            <div class="ad-row"><label>模型</label>
+              <input class="input input-sm" id="adModel" placeholder="gpt-4o-mini">
+            </div>
+            <div class="ad-actions">
+              <button class="ad-btn ghost" id="adTest">测试连接</button>
+              <button class="ad-btn primary" id="adSave">保存配置</button>
+            </div>
+            <div class="ad-help">
+              <b>操作说明</b>
+              <ol>
+                <li>选择服务商，填入控制台生成的 API Key</li>
+                <li>接口地址一般以 <code>/v1</code> 结尾，如通义 <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code></li>
+                <li>模型填支持 JSON 输出的版本（如 <code>gpt-4o-mini</code>、<code>qwen-plus</code>）</li>
+                <li>点「测试连接」→ 成功后「保存配置」</li>
+                <li>隐私提示：作文全文会发送至该接口，请确认已获得授权</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="ad-pane" data-pane="local">
+            <div class="ad-row"><label>推理框架</label>
+              <select class="input input-sm" id="adEngine">
+                <option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option>
+                <option value="vllm">vLLM / OpenAI 兼容</option>
+              </select>
+            </div>
+            <div class="ad-row"><label>本地地址</label>
+              <input class="input input-sm" id="adLocalBase" placeholder="http://127.0.0.1:11434">
+            </div>
+            <div class="ad-row"><label>模型名称</label>
+              <input class="input input-sm" id="adLocalModel" placeholder="qwen2.5:7b">
+            </div>
+            <div class="ad-actions">
+              <button class="ad-btn ghost" id="adLocalTest">检测本地服务</button>
+              <button class="ad-btn primary" id="adLocalSave">保存配置</button>
+            </div>
+            <div class="ad-help">
+              <b>操作说明</b>
+              <ol>
+                <li>安装 Ollama 后执行 <code>ollama pull qwen2.5:7b</code> 拉取模型</li>
+                <li>启动服务：<code>ollama serve</code>，默认端口 11434</li>
+                <li>浏览器若跨域被拦截，启动时加 <code>OLLAMA_ORIGINS=*</code></li>
+                <li>本地部署不联网，作文数据不出本机</li>
+                <li>7B 模型建议 16G 内存以上，长文可用 14B/32B</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="ad-note">配置仅保存在本机浏览器，不会上传。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-foot">
+      <div class="run-card" id="runCard" hidden></div>
+      <button class="btn-primary" id="btnGrade" disabled title="请先选择年级">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span id="btnGradeTxt">一键批改</span>
+      </button>
+      <div class="foot-row">
+        <button class="btn-soft" id="btnNext">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          添加下一份
+        </button>
+        <button class="btn-soft" id="btnHistory">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg>
+          历史记录
+        </button>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- ================= 中间画板 ================= -->
+  <main class="stage panel">
+    <div class="stage-bar">
+      <div class="file-tabs" id="fileTabs"></div>
+      <div class="toolgroup" title="缩放">
+        <button class="tool" id="toolZoomOut" title="缩小">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M20.5 20.5l-3.6-3.6"/></svg>
+        </button>
+        <span id="zoomLabel">100%</span>
+        <button class="tool" id="toolZoomIn" title="放大">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M11 8v6M8 11h6M20.5 20.5l-3.6-3.6"/></svg>
+        </button>
+        <i class="divider"></i>
+        <button class="tool" id="toolPrint" title="一键导出 PDF">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+        </button>
+      </div>
+      
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div id="canvasInner"></div>
+    </div>
+    <div class="canvas-foot">
+      <div class="legend">
+        <span><i style="background:#e2554f"></i>错别字/病句</span>
+        <span><i style="background:#d9a223"></i>润色</span>
+        <span><i style="background:#22a06b"></i>好句</span>
+        <span><i style="background:#8b5cf6"></i>删改</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ================= 右侧结果区 360px ================= -->
+  <aside class="report panel">
+    <div class="rp-head">
+      <div class="r1">
+        <h2>批改报告 <span class="badge" id="aiBadge">AI 已就绪</span></h2>
+        <div class="export-group">
+          <button class="tool ex" id="btnExportPDF" title="一键导出 PDF">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15h6"/></svg>
+            <span>PDF</span>
+          </button>
+          <button class="tool ex" id="btnExportHTML" title="一键导出 HTML">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span>HTML</span>
+          </button>
+        </div>
+      </div>
+      <div class="meta" id="rpMeta">等待批改</div>
+    </div>
+    <div class="report-scroll" id="reportScroll"></div>
+  </aside>
+</div>
+
+<!-- 弹窗 -->
+<div class="mask" id="mask">
+  <div class="modal" id="modal">
+    <div class="modal-h"><div><h3 id="mTitle">批改中</h3><p id="mSub"></p></div>
+      <button class="x" id="mClose">✕</button></div>
+    <div class="modal-b" id="mBody"></div>
+    <div class="modal-f" id="mFoot"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="assets/data.js?v=20261101s"></script>
+<script src="assets/jspdf.min.js?v=20261024z"></script>
+<script src="assets/html2canvas.min.js?v=20261024z"></script>
+<script src="assets/export.js?v=20261101s"></script>
+<script src="assets/ai.js?v=20261101s"></script>
+<script src="assets/app.js?v=20261101s"></script>
+</body>
+</html>
