@@ -209,33 +209,77 @@
   .li .ex s{color:#b3b8c4}
   .li .ex b{color:#1e8f60;font-size:11.1px}
 
-  /* ---- 思路 / 技巧 ---- */
-  .flow{position:relative;padding-left:24px;margin-top:4px}
-  .flow::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:1.5px;background:#e6e6f8}
-  .stp{position:relative;padding:8px 0}
-  .stp::before{content:"";position:absolute;left:-22px;top:13px;width:10px;height:10px;
-    border-radius:50%;background:#fff;border:2.5px solid #7c7cf0}
-  .stp .k{font-size:12.9px;font-weight:800;color:#5b5ce2;margin-bottom:3px}
-  .stp .v{font-size:12.1px;line-height:1.75;color:#4a4d57}
-  .stp .v b{color:#5b5ce2}
-  .stp .ex{margin-top:5px;padding:6px 9px;background:#fafbff;border-radius:6px;
-    font-size:11.1px;color:#7c8194;line-height:1.6}
+  /* ================= 写作思路：参考提纲 + 具体问题与修改思路 ================= */
+  /* 区块一：外框浅灰蓝，标题带圆点，内部为纵向时间轴 */
+  .ol-sec{
+    border:1px solid #e6e9f2;border-radius:12px;background:#f7f9fd;
+    padding:14px 16px 16px;margin-bottom:14px;
+  }
+  .ol-t{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:800;
+    color:#2f6bdd;margin:0 0 5px;line-height:1.3}
+  .ol-t .dot{width:7px;height:7px;border-radius:50%;background:#3b82f6;flex:0 0 7px}
+  .ol-sub{font-size:10.6px;color:#8f96a8;line-height:1.7;margin:0 0 12px;padding-left:14px}
+  .ol-sub .ol-br{display:block;margin-top:5px;color:#9aa2b4}
 
-  /* ---- 写作思路：两块结构 ---- */
-  .ol-block{margin-bottom:12px}
-  .ol-h{display:flex;align-items:center;gap:7px;font-size:13.7px;font-weight:800;
-    color:#2a2c35;margin:0 0 7px;padding-bottom:5px;border-bottom:1px solid #eef0f6}
-  .ol-h .ol-n{width:17px;height:17px;border-radius:50%;flex:0 0 17px;
-    background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;font-size:10.3px;
-    font-weight:800;display:flex;align-items:center;justify-content:center}
-  .stp .steps{margin-top:4px}
-  .step{display:flex;gap:5px;font-size:11.7px;line-height:1.65;color:#5a5f6d;
-    margin-bottom:3px;align-items:flex-start}
-  .step .sn{flex:0 0 13px;height:13px;border-radius:50%;background:#f0f1fa;color:#7c81a0;
-    font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px}
-  .fix{border:1px solid #eef0f6;border-radius:8px;padding:9px 11px;margin-bottom:8px;background:#fcfcfe}
-  .fix-t{font-size:12.3px;font-weight:800;color:#2a2c35;margin-bottom:3px}
-  .fix-d{font-size:11.1px;line-height:1.62;color:#8a90a0;margin-bottom:5px}
+  /* 时间轴：左侧节点标签 + 中间竖线 + 右侧白卡 */
+  .ol-flow{position:relative;padding-left:60px}
+  .ol-flow::before{content:"";position:absolute;left:47px;top:12px;bottom:12px;
+    width:1.5px;background:#dfe5f2}
+  .ol-row{position:relative;margin-bottom:10px}
+  .ol-row:last-child{margin-bottom:0}
+  .ol-row .tag{
+    position:absolute;left:-60px;top:2px;width:52px;text-align:center;
+    font-size:10.4px;font-weight:700;line-height:20px;height:20px;border-radius:5px;
+    letter-spacing:.3px;z-index:2;
+  }
+  .ol-row .tag::after{
+    content:"";position:absolute;right:-9px;top:9px;width:9px;height:1.5px;background:#dfe5f2;
+  }
+  .ol-row .tag.s1{color:#3b82f6;background:#e8f0fe}
+  .ol-row .tag.s2{color:#18885f;background:#e6f6ee}
+  .ol-row .tag.s3{color:#c2760c;background:#fdf3e2}
+  .ol-row .body{
+    background:#fff;border:1px solid #e8ecf5;border-radius:9px;
+    padding:9px 12px;font-size:11.4px;line-height:1.78;color:#4a4f5e;
+  }
+  .ol-row .body .lead{color:#2a2f3d;font-weight:700;margin-bottom:5px;display:block}
+  .ol-row .body .item{display:flex;gap:6px;margin-top:4px;align-items:flex-start}
+  .ol-row .body .item .n{
+    flex:0 0 14px;height:14px;border-radius:50%;background:#eef2fb;color:#5f6b85;
+    font-size:9px;font-weight:700;line-height:14px;text-align:center;margin-top:2px;
+  }
+  .ol-row .body .item span:last-child{flex:1;min-width:0;word-break:break-word}
+  .ol-row .body .ex{
+    margin-top:6px;padding:6px 9px;background:#f8fafd;border-radius:6px;
+    font-size:10.8px;color:#6f7891;line-height:1.65;
+  }
+  .ol-row .body .ex em{font-style:normal;color:#8f96a8}
+
+  /* 区块二：问题卡片（浅绿调 + 左侧绿竖条 + 编号标题 → 说明 → 步骤） */
+  /* 区块二标题：普通标题直接接卡片，不套容器（对齐参考排版） */
+  .fx-head{font-size:14.6px;font-weight:800;color:#2a2c35;margin:18px 0 5px;
+    padding-left:9px;border-left:3.5px solid #35a06a;line-height:1.3}
+  .fx-sub{font-size:10.6px;color:#8f96a8;line-height:1.65;margin:0 0 10px;padding-left:12px}
+  .fx-list{margin-top:2px}
+  .fx{
+    background:linear-gradient(180deg,#f4fbf7,#fbfefc);
+    border:1px solid #dff0e6;border-left:3.5px solid #35a06a;
+    border-radius:10px;padding:12px 14px 13px;margin-bottom:10px;
+  }
+  .fx:last-child{margin-bottom:0}
+  .fx-h{font-size:12.4px;font-weight:800;color:#1f3b2e;line-height:1.7;margin-bottom:5px}
+  .fx-h .n{color:#2f8f60;margin-right:2px}
+  .fx-d{font-size:11.2px;line-height:1.75;color:#5b666f;margin-bottom:8px}
+  .fx-steps{border-top:1px dashed #dcece3;padding-top:8px}
+  .fx-step{display:flex;gap:6px;font-size:11.1px;line-height:1.7;color:#4d5a54;
+    margin-bottom:4px;align-items:flex-start}
+  .fx-step:last-child{margin-bottom:0}
+  .fx-step .sn{
+    flex:0 0 14px;height:14px;border-radius:50%;background:#e3f2ea;color:#2f8f60;
+    font-size:9px;font-weight:700;line-height:14px;text-align:center;margin-top:2px;
+  }
+  .fx-step span:last-child{flex:1;min-width:0;word-break:break-word}
+  .fx-step b{color:#1f7a52;font-weight:700}
 
   /* ---- 小练笔 ---- */
   .drill{border:1px solid #eef0f6;border-radius:10px;padding:12px 14px;margin-bottom:10px}
@@ -247,21 +291,36 @@
   .drill .t em{font-style:normal;font-size:10.9px;color:#8a90a0;margin-left:5px;font-weight:500}
   .drill .iss{font-size:10.9px;color:#b8730a;background:#fff8ec;border-radius:6px;
     padding:3px 8px;margin-bottom:7px;display:inline-block;line-height:1.5}
-  .drill .r{font-size:11.7px;line-height:1.75;color:#4a4d57;display:flex;gap:7px;
-    margin-bottom:5px;align-items:flex-start}
-  .drill .r .kk{flex:0 0 30px;font-size:9.9px;font-weight:800;color:#b45309;background:#fff4e5;
-    border-radius:4px;height:15px;line-height:15px;text-align:center;margin-top:1px}
-  .drill .r + .r .kk{color:#5b5ce2;background:#eef0ff}
+  /* 三行色块：存在的问题（橙）/ 思路（绿）/ 例子（蓝） */
+  .drill .r{font-size:11.3px;line-height:1.72;color:#4a4d57;display:flex;gap:8px;
+    align-items:flex-start;border-radius:7px;padding:7px 10px;margin-bottom:6px}
+  .drill .r .kk{flex:0 0 auto;font-size:9.4px;font-weight:800;
+    border-radius:4px;padding:1.5px 6px;line-height:1.5;margin-top:1px;white-space:nowrap}
   .drill .r span:last-child{flex:1;min-width:0;word-break:break-word}
-  .drill .demo{background:#f8f7ff;border-radius:7px;padding:7px 9px;font-size:11.1px;
-    line-height:1.72;color:#5d5a80}
-  .drill .demo .kk{background:#ece9fd;color:#7c5cf0}
+  .drill .r.prob{background:#fdf4e9;border-left:3px solid #e8a33d}
+  .drill .r.prob .kk{color:#b8730a;background:#fbe8cd}
+  .drill .r.idea{background:#ecf7ef;border-left:3px solid #4aa96c}
+  .drill .r.idea .kk{color:#2f7d4f;background:#d8efe0}
+  .drill .r.demo{background:#eef2fd;border-left:3px solid #5b7fd4}
+  .drill .r.demo .kk{color:#3f5fa8;background:#dbe4fa}
+  .drill .r.demo span:last-child{color:#40507a;font-family:"Songti SC","SimSun",serif;font-size:11px}
 
   /* ---- 总评 / 润色稿 ---- */
   .review{font-size:13.4px;line-height:2.1;text-align:justify;color:#3a3d47}
   .review p{margin:0 0 9px;text-indent:2em}
   .review b{color:#5b5ce2}
   .paper-txt{background:#fdfcf8;border:1px solid #f2efe6;border-radius:10px;padding:36px 40px;min-height:940px}
+  /* ---- 本次润色说明 ---- */
+  .pn-head{font-size:14px;font-weight:800;color:#2a2c35;margin:22px 0 5px;
+    padding-left:9px;border-left:3.5px solid #4aa96c;line-height:1.3}
+  .pn-sub{font-size:10.6px;color:#8f96a8;line-height:1.65;margin:0 0 10px;padding-left:12px}
+  .pn-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .pn{border:1px solid #e9eef4;border-radius:9px;padding:9px 11px;background:#fbfcfe}
+  .pn-n{font-size:11.6px;font-weight:800;color:#1f6b8a;margin-bottom:3px;display:flex;align-items:center;gap:5px}
+  .pn-n::before{content:"·";color:#4aa96c;font-weight:900;font-size:15px;line-height:1}
+  .pn-d{font-size:10.7px;line-height:1.7;color:#5b6472}
+  .pn-s{margin-top:5px;font-size:10.5px;line-height:1.65;color:#7a8194;
+    background:#f4f7fb;border-radius:5px;padding:5px 7px;word-break:break-word}
   .paper-txt .t{text-align:center;font-family:"Songti SC","SimSun",serif;font-size:19.5px;
     font-weight:800;margin-bottom:12px;letter-spacing:1.2px}
   .paper-txt p{font-family:"Songti SC","SimSun",serif;font-size:15.2px;line-height:2.4;
@@ -697,92 +756,184 @@ function hexA(hex, a) {
     return `<div class="sec">存在问题</div>${iss}`;
   }
 
+  /* ================= 写作思路 =================
+   * 结构参考实际批改排版：
+   *   一、参考写作思路 —— 先诊断全文现状，再按「开头 / 展开 / 细节 / 转折 / 结尾」
+   *        给出可执行方向，纵向时间轴 + 节点标签 + 白卡。
+   *   二、具体问题与修改思路 —— 以问题句作小标题，先概括问题，再给可操作步骤与示例。
+   */
   function secOutline(o) {
-    const P = o.paras || [];
-    const cut = (t, n) => String(t || '').replace(/\s+/g, '').slice(0, n);
+    const P = (o.paras || []).filter(x => x && String(x).trim().length > 2);
     const issues = o.issues || [];
-    const text = P.join('');
-    const hasDialog = /[“"][^”"]{2,}[”"]/.test(text);
-    const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影)/.test(text);
+    const cnt = s => String(s || '').replace(/\s+/g, '').length;
+    const full = P.join('');
+    const cut = (t, n) => String(t || '').replace(/\s+/g, '').slice(0, n);
+    const words = o.words || cnt(full);
 
-    // 一、参考写作思路：开头 / 中间（分条）/ 结尾
-    const outline = [
-      { k: '开头', v: '用一个具体画面或悬念切入，交代人物与情境，不要先讲道理。',
-        steps: ['先给一个能看见的场景：时间、地点、一个正在发生的动作。', '让主角进场，写他此刻在做什么，而不是他"想"什么。'],
-        ex: P[0] ? `本文开头：“${cut(P[0], 26)}…”` : '' },
-      { k: '中间', v: '抓一个片段慢镜头细写，把"经过"写具体。',
-        steps: [
-          '第一步写起因：什么打破了原来的平静，用一句话交代清楚。',
-          '第二步写经过：只选一个关键瞬间，按"先做什么→再做什么→最后做什么"推进。',
-          hasDialog ? '第三步写转折：把最能改变情绪的那句原话，摆到转折点上。'
-                    : '第三步写转折：加一句人物原话或一个意外，让情绪发生变化。',
-          hasSense ? '每个动作后面补一处身体反应或环境细节，避免通篇概括。'
-                   : '每个动作后面补一处声音或触感，让读者"在场"。'
+    /* ---------- 全文现状诊断（供读者先看清底子） ---------- */
+    const longSents = P.filter(t => /[^。！？；]{42,}/.test(t));
+    const hasDialog = /[“"][^”"]{2,}[”"]/.test(full);
+    const hasSense = /(听见|闻到|摸到|闻到|凉|暖|响|香|光|影|烫|冷)/.test(full);
+    const hasImage = /(像|仿佛|好似|如同)/.test(full);
+    const longest = P.reduce((a, b) => (cnt(b) > cnt(a) ? b : a), P[0] || '');
+    const shortest = P.reduce((a, b) => (cnt(b) < cnt(a) || !a ? b : a), P[0] || '');
+    const spread = P.length >= 2 ? (cnt(longest) - cnt(shortest)) : 0;
+
+    const diag = [];
+    diag.push(`全文 ${cnt(full) || words} 字、${P.length} 段，${P.length && cnt(full) / P.length > 90 ? '段落偏长，可再切分' : '段落长度适中'}`);
+    if (hasDialog) diag.push('有人物对话，叙述有现场感');
+    else diag.push('全篇没有人物原话，可加一句对话让场景活起来');
+    if (hasSense) diag.push('写到了声音 / 触感等感官细节');
+    else diag.push('缺少感官细节，画面偏“看”不偏“感”');
+    if (hasImage) diag.push('用了比喻，语言有形象感');
+    if (longSents.length) diag.push(`有 ${longSents.length} 处长句未断开`);
+    if (spread > 40) diag.push('段落长短差距较大，节奏可再匀一匀');
+    const diagLine = diag.slice(0, 4).join('；') + '。';
+
+    /* ---------- 一、参考写作思路：按段落功能给方向 ---------- */
+    const nodes = [
+      {
+        tag: '开头', cls: 's1',
+        lead: '用具体画面切入，先把人放进场景里',
+        items: [
+          '起笔给一个能看见的镜头：时间、地点、一个正在发生的动作。',
+          '主角出场时写他在做什么，不要先写他在“想”什么。',
+          hasDialog ? '可以在开头埋一句原话，让读者先听见声音。'
+                    : '可以在开头埋一句人物的原话，先声夺人。'
         ],
-        ex: P[1] ? `本文中段：“${cut(P[1], 26)}…”` : '' },
-      { k: '结尾', v: '回到开头的意象或场景，用一句话点明感受，把道理藏在画面里。',
-        steps: ['直接抒情式：用具体的词点明感受，不喊口号。', '首尾呼应式：让开头那件物或那个声音再出现一次。', '留白式：停在一个动作或画面上，不解释。'],
-        ex: P.length ? `本文结尾：“${cut(P[P.length - 1], 26)}…”` : '' }
+        ex: P[0] ? `本文开头：“${cut(P[0], 30)}…”` : ''
+      },
+      {
+        tag: '展开', cls: 's2',
+        lead: '选一个片段慢镜头细写，把“经过”写具体',
+        items: [
+          '先交代起因：什么打破了原来的平静，一句话说清。',
+          '只选一个关键瞬间，按“先做什么 → 再做什么 → 最后做什么”推进。',
+          '每写一个动作，后面跟一处身体反应或环境细节。'
+        ],
+        ex: P[1] ? `本文中段：“${cut(P[1], 30)}…”` : ''
+      },
+      {
+        tag: '细节', cls: 's2',
+        lead: '把概括性的说法换成可感的具体',
+        items: [
+          hasSense ? '保留现有感官描写，再补一处与情绪相反的感觉，反差更有力。'
+                   : '补一处声音或触感，比如水声、掌心温度、指尖的粗糙。',
+          '把“我很感动 / 很难过”这类词划掉，改写成身体反应。',
+          hasImage ? '比喻保留一个最贴切的，删掉重复的。'
+                   : '给最关键的物件配一个来自生活的比喻。'
+        ],
+        ex: longest ? `可改写的段落：“${cut(longest, 26)}…”` : ''
+      },
+      {
+        tag: '转折', cls: 's3',
+        lead: '在情绪变化处放慢，给一个“停住”的瞬间',
+        items: [
+          '在“想做”和“没做”之间补一个犹豫的动作。',
+          '用一句原话或一个意外，把情绪推到转折点。',
+          '转折之后不要立刻解释，先让动作说完。'
+        ],
+        ex: longSents.length ? `注意长句：“${cut(longSents[0], 26)}…”建议在此断句。` : ''
+      },
+      {
+        tag: '结尾', cls: 's3',
+        lead: '回到开头的意象，把感受藏在画面里',
+        items: [
+          '让开头出现过的那件物或那个声音再出现一次，形成回环。',
+          '停在动作或画面上，不解释、不喊口号。',
+          '如果一定要点题，只用一句，且要短。'
+        ],
+        ex: P.length ? `本文结尾：“${cut(P[P.length - 1], 28)}…”` : ''
+      }
     ];
 
-    // 二、具体问题与修改思路：问题 → 怎么改（分条）
-    const fixes = issues.slice(0, 3).map((it, i) => {
-      const steps = [];
-      if (/长句|断句|45|逗号/.test(it.title || '')) {
-        steps.push('找到那句超过 40 字的话，在转折处（"可""但""于是"）断开。',
-          '断开后前后各留半句，读一遍，不喘气了就对了。',
-          '比如：把"我忽然想走过去帮她提一下那袋米可我又坐回去了"拆成两句。');
-      } else if (/错别字|病句|地|的|标点|成分/.test(it.title || '')) {
-        steps.push('先把原句抄下来，逐字读一遍，标出可疑处。',
-          '对照"修饰动词用地、补充说明用得、修饰名词用的"。',
-          '改完再读一遍，确认句子成分完整、不残缺。');
-      } else if (/情绪|概括|抽象|感动|难过/.test(it.title || '')) {
-        steps.push('把"我很感动"这类概括词划掉。',
-          '问自己：那一刻手在做什么？眼睛看见了什么？',
-          '比如：改成"鼻子一酸，眼眶忽然热了一下"。');
-      } else if (/重复|啰嗦|删/.test(it.title || '')) {
-        steps.push('找出与前文意思相同的句子，只保留最有力的一句。',
-          '删掉后看上下文是否连贯，若跳跃就补半句过渡。');
-      } else {
-        steps.push('先定位问题句，把它单独抄出来。',
-          '按"是什么问题 → 怎么改 → 改完读一遍"三步处理。');
+    /* ---------- 二、具体问题与修改思路 ---------- */
+    const fixSteps = (it) => {
+      const t = (it.title || '') + (it.desc || '');
+      if (/长句|断句|逗号|40|45/.test(t)) {
+        return ['先把这句话单独抄到一张纸上，找到“可 / 但 / 于是 / 却”这类转折词。',
+          '在转折词前面断开，前后各留半句，读一遍，不喘气就对了。',
+          '断开后检查前半句主语是否还在，没有就把主语补上。'];
       }
-      return { t: it.title || `问题 ${i + 1}`, d: it.desc || '', steps };
-    });
+      if (/错别字|病句|的|地|得|标点|成分|助词/.test(t)) {
+        return ['把原句抄下来，逐字读一遍，标出可疑处。',
+          '按“修饰名词用的、修饰动词用地、补充说明用得”逐处核对。',
+          '改完再读一遍，确认句子成分完整、不残缺。'];
+      }
+      if (/情绪|概括|抽象|感动|难过|开心|紧张/.test(t)) {
+        return ['把“我很感动 / 很难过”这类概括词先划掉。',
+          '问自己：那一刻手在做什么？眼睛看见了什么？喉咙、鼻子什么感觉？',
+          '选一个最清楚的身体反应写进去，比如“鼻子一酸，眼眶忽然热了一下”。'];
+      }
+      if (/重复|啰嗦|删|冗余/.test(t)) {
+        return ['找出与前文意思相同的句子，只保留最有力的一句。',
+          '删掉后读上下文，若跳跃就补半句过渡。',
+          '删完再看字数，若明显变短，把省下的篇幅补给细节。'];
+      }
+      if (/节奏|平|起伏|层次/.test(t)) {
+        return ['把这一段按句子数一数，如果连续三句长度接近，就拆一句短的。',
+          '在最关键处单独成句，用短句制造停顿。',
+          '段与段之间留一个空行或一句过渡，让读者喘口气。'];
+      }
+      return ['先定位问题句，把它单独抄出来。',
+        '按“是什么问题 → 怎么改 → 改完读一遍”三步处理。',
+        '改完放回原文，确认与上下文衔接自然。'];
+    };
+
+    const fixes = issues.slice(0, 3).map((it, i) => ({
+      t: it.title || `问题 ${i + 1}`,
+      d: it.desc || '',
+      quote: it.quote || '',
+      fix: it.fix || '',
+      steps: fixSteps(it)
+    }));
+
+    /* ---------- 拼装 ---------- */
+    const flowHTML = nodes.map(n => `
+      <div class="ol-row">
+        <span class="tag ${n.cls}">${n.tag}</span>
+        <div class="body">
+          <span class="lead">${esc(n.lead)}</span>
+          ${n.items.map((s, i) => `<div class="item"><span class="n">${i + 1}</span><span>${esc(s)}</span></div>`).join('')}
+          ${n.ex ? `<div class="ex"><em>${esc(n.ex)}</em></div>` : ''}
+        </div>
+      </div>`).join('');
+
+    const fixHTML = fixes.map((f, i) => `
+      <div class="fx">
+        <div class="fx-h"><span class="n">${i + 1}.</span>${esc(f.t)}</div>
+        ${f.d ? `<div class="fx-d">${esc(f.d)}</div>` : ''}
+        <div class="fx-steps">
+          ${f.steps.map((s, k) => `<div class="fx-step"><span class="sn">${k + 1}</span><span>${esc(s)}</span></div>`).join('')}
+        </div>
+      </div>`).join('');
 
     return `<div class="sec">写作思路</div>
 
-      <div class="ol-block">
-        <div class="ol-h"><span class="ol-n">一</span>参考写作思路</div>
-        <div class="flow">${outline.map(r => `<div class="stp">
-          <div class="k">${r.k}</div>
-          <div class="v">${esc(r.v)}</div>
-          <div class="steps">${r.steps.map((s, i) => `<div class="step"><span class="sn">${i + 1}</span>${esc(s)}</div>`).join('')}</div>
-          ${r.ex ? `<div class="ex">${esc(r.ex)}</div>` : ''}
-        </div>`).join('')}</div>
+      <div class="ol-sec">
+        <div class="ol-t"><span class="dot"></span>参考写作思路</div>
+        <p class="ol-sub">先看现状：${esc(diagLine)}<span class="ol-br">下面按段落功能给出一条可参考的写法路径，可对照自己的作文逐段调整。</span></p>
+        <div class="ol-flow">${flowHTML}</div>
       </div>
 
-      ${fixes.length ? `<div class="ol-block">
-        <div class="ol-h"><span class="ol-n">二</span>具体问题与修改思路</div>
-        ${fixes.map((f, i) => `<div class="fix">
-          <div class="fix-t">${i + 1}. ${esc(f.t)}</div>
-          ${f.d ? `<div class="fix-d">${esc(f.d)}</div>` : ''}
-          <div class="steps">${f.steps.map((s, k) => `<div class="step"><span class="sn">${k + 1}</span>${esc(s)}</div>`).join('')}</div>
-        </div>`).join('')}
-      </div>` : ''}
+      ${fixes.length ? `
+        <div class="fx-head">具体问题与修改思路</div>
+        <p class="fx-sub">针对本篇最值得优先处理的 ${fixes.length} 处问题，每条给出可落地的改法。</p>
+        <div class="fx-list">${fixHTML}</div>` : ''}
     `;
   }
 
   function secDrills(o) {
     const list = o.drills || [];
     if (!list.length) return '';
+    // 卡片结构对齐参考排版：存在的问题（橙）/ 思路（绿）/ 例子（蓝）
     return `<div class="sec">小练笔<span class="tag">针对本文薄弱点</span></div>
       ${list.map((b, i) => `<div class="drill">
         <div class="h"><span class="n">${i + 1}</span><span class="t">${esc(b.key)}<em>· ${esc(b.focus)}</em></span></div>
-        ${b.issue ? `<div class="iss">${esc(b.issue)}</div>` : ''}
-        <div class="r"><span class="kk">练习</span><span>${esc(b.ask)}</span></div>
-        <div class="r"><span class="kk">思路</span><span>${esc(b.idea)}</span></div>
-        <div class="r demo"><span class="kk">素材</span><span>${esc(b.demo)}</span></div>
+        ${b.related ? `<div class="iss">对应问题：${esc(b.related)}</div>` : ''}
+        <div class="r prob"><span class="kk">存在的问题</span><span>${esc(b.issue || '')}</span></div>
+        <div class="r idea"><span class="kk">思路</span><span>${esc(b.idea || '')}</span></div>
+        <div class="r demo"><span class="kk">例子</span><span>${esc(b.demo || '')}</span></div>
       </div>`).join('')}`;
   }
 
@@ -794,10 +945,19 @@ function hexA(hex, a) {
 
   function secPolish(o) {
     const lvTag = [o.grade, o.label].filter(Boolean).join(' · ');
+    const notes = o.polishNotes || [];
     return `<div class="sec">润色后文章${lvTag ? `<span class="tag">${esc(lvTag)}</span>` : ''}</div>
       <div class="paper-txt"><div class="t">${esc(o.title)}</div>
         ${o.polished.map(t => `<p>${esc(t)}</p>`).join('')}</div>
-`;
+      ${notes.length ? `<div class="pn-head">本次润色说明</div>
+      <div class="pn-sub">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
+      <div class="pn-grid">
+        ${notes.map(n => `<div class="pn">
+          <div class="pn-n">${esc(n.name)}</div>
+          <div class="pn-d">${esc(n.desc)}</div>
+          ${n.sample ? `<div class="pn-s">${esc(n.sample)}</div>` : ''}
+        </div>`).join('')}
+      </div>` : ''}`;
   }
 
   function secFooter(o) { return ''; }

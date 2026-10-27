@@ -1610,13 +1610,42 @@
     const sc = scoreOf(g, d.weights, essay.paras.join(''), null);
     const lv = levelOf(g, sc.total);
     // 批注：基于段落生成
-    const annos = makeAnnos(essay, g, genre);
+    const annos = makeAnnos(essay, g, genre, { isDemo: !!(d && d.isDemo) });
     const report = makeReport(essay, g, genre, sc, lv, d, annos);
+
+    // ===== 与最新版对齐：补齐导出层使用的字段，保证演示稿与真实批改同构 =====
+    // ① 亮点：补 title / detail
+    report.highlights = (report.highlights || []).map(h => ({
+      title: h.title || h.t || '',
+      detail: h.detail || h.d || '',
+      t: h.t || h.title || '',
+      d: h.d || h.detail || ''
+    }));
+    // ② 问题：补 title / severity / desc / quote / fix
+    report.issues = (report.issues || []).map(it => ({
+      title: it.title || it.t || '',
+      severity: it.severity || it.sev || 'low',
+      sev: it.sev || it.severity || 'low',
+      desc: it.desc || it.d || '',
+      detail: it.desc || it.d || '',
+      quote: it.quote || '',
+      fix: it.fix || '',
+      ex: it.ex || ''
+    }));
+    // ③ 润色稿：不在此处预生成，交由 buildPolished 统一处理（带变更追踪）
+    // ④ 四维评语：演示稿补齐
+    if (!report.dimComments) {
+      report.dimComments = {};
+      (window.ZP.DIMS || []).forEach(dm => {
+        const p = (sc.points || {})[dm.key];
+        report.dimComments[dm.key] = p && p.comment ? p.comment : (dm.hint || '');
+      });
+    }
     return { essay, score: sc, level: lv, annos, report, at: Date.now() };
   }
 
   /* ---------- 生成四条批注（每条对应段落） ---------- */
-  function makeAnnos(essay, g, genre) {
+  function makeAnnos(essay, g, genre, opts) {
     const P = essay.paras.filter(x => x && x.length > 4);
     if (!P.length) return [];
     const cut = (t, n) => String(t).replace(/^\s+/, '').slice(0, n);
@@ -1672,20 +1701,42 @@
     build.push({ type: 'dele', para: Math.max(0, N - 1),
       html: `结尾“<b>${cut(P[N - 1], 16)}…</b>”与上文意象有重复，建议<u>删去一句</u>，把感受藏在动作里更克制。` });
 
-    // 布局：左右交替，按侧分别均分 y，避免重叠
+    // ===== 定位：按批注对应段落的真实行位置计算，不再均分 =====
+    // 演示稿的正文是与 PAPER 网格严格对齐的排版，段落 i 的文字基线在 FIRST_BASE + i*LINE_GAP，
+    // 因此批注条的纵坐标必须由段落号换算，才能精确压在该段文字上。
+    const gridTotal = () => {
+      if (typeof P !== 'undefined' && P && P.FIRST_BASE != null) return P;
+      if (typeof PAPER !== 'undefined' && PAPER) return PAPER;
+      return { PAD_X: 86, LINE_W: 600, FIRST_BASE: 186, LINE_GAP: 40, W: 760 };
+    };
+    const G = gridTotal();
+    const rowsAll = (opts && opts.isDemo && typeof DEMO_LINES !== 'undefined') ? DEMO_LINES.length : N;
+    const pageH = (typeof demoPageH === 'function') ? demoPageH(rowsAll) : 1000;
+
+    // 段落号 → 该行文字的纵向区间（相对纸张高度）
+    const rowToY = (row) => {
+      const base = G.FIRST_BASE + Math.max(0, row) * G.LINE_GAP;
+      const topPx = base - 14;            // 条顶略高于文字顶
+      const hPx = 44;                     // 条高覆盖一整行
+      return {
+        y: Math.max(0, Math.min(0.97, topPx / pageH)),
+        h: Math.max(0.018, Math.min(0.06, hPx / pageH))
+      };
+    };
+
     const total = build.length;
-    const leftN = Math.ceil(total / 2);
+    // 先按段落先后排序，编号与阅读顺序一致（从上到下 1、2、3…）
+    build.sort((a, b) => (a.para - b.para) || 0);
     return build.map((a, i) => {
       const side = i % 2 === 0 ? 'left' : 'right';
-      const k = Math.floor(i / 2);
-      const count = side === 'left' ? leftN : total - leftN;
-      const step = 0.74 / Math.max(1, count);
+      const pos = rowToY(a.para);
       return {
-        id: 'a' + i, type: a.type, side, html: a.html, para: a.para,
+        id: 'a' + i, no: i + 1, type: a.type, side, html: a.html, para: a.para,
         stat: { good: '好句', err: '病句', polish: '润色', dele: '删改' }[a.type],
-        x: 0.08,
-        y: Math.min(0.86, 0.07 + k * step),
-        w: 0.72, h: 0.022
+        x: G.PAD_X / G.W,
+        y: pos.y,
+        w: G.LINE_W / G.W,
+        h: pos.h
       };
     });
   }
@@ -2087,58 +2138,21 @@
 
   /* ============ Tab3：小练笔 ============ */
   function paneDrill(R, g) {
-    const issues = R.report.issues || [];
-    const bank = [
-      { key: '描写手法', focus: '把"概括动作"改成"可看见的动作"',
-        ask: '从文中挑一处只说"做了什么"的句子，改写成 80 字左右的片段，要能让人看见手、脚、肩膀分别怎么动。',
-        idea: '先定一个 3 秒的瞬间，再按"手—身—眼—呼吸"的顺序写，不要写心理结论。',
-        demo: '他把试卷往抽屉里塞，指尖却卡在缝上，来回蹭了两下；肩膀跟着低下去，眼睛盯着地面上一小块光斑。' },
-      { key: '感官描写', focus: '五种感觉里补两样',
-        ask: '选文中一个场景，补写听觉与触觉各一句，让读者"听见""摸到"。',
-        idea: '声音写远近与节奏，触觉写温度、粗细、软硬；两句都别超过 20 字。',
-        demo: '走廊尽头的饮水机在咕嘟作响；门把手上有一层薄薄的凉，像刚从冰箱里拿出来。' },
-      { key: '环境描写', focus: '用环境映衬心情',
-        ask: '为文中"情绪转折"的那一刻写 60 字环境描写，不出现心情词，却让人读得出情绪。',
-        idea: '选一个会变的东西：光、风、雨、影子；让它跟着人物情绪一起变。',
-        demo: '云把太阳挡住了，屋里一下子暗下来；窗台的绿萝垂下去，叶尖上还挂着一滴水。' },
-      { key: '修辞手法', focus: '一个贴切的比喻胜过三个堆砌',
-        ask: '给文中最重要的一个"物"或"人"写一个比喻，喻体必须来自日常生活。',
-        idea: '喻体越具体越好，最好带动作：不是"像纸"，而是"像被反复折过的纸"。',
-        demo: '她的背影像一张被折了很多次的纸，折痕处已经发白。' },
-      { key: '表达手法', focus: '用"不说破"代替直说',
-        ask: '把文中一句直接抒情的话，改成通过一个动作或细节来表现，不许出现"感动/难过/开心"。',
-        idea: '先写下想表达的情绪，再问：人在这种情绪下会下意识做什么小动作？',
-        demo: '我把碗摞好，又拿抹布把桌角擦了两遍，其实那里什么也没有。' }
-    ];
-
-    const scope = [
-      { label: '描写手法', m: /描写|动作|细节|镜头/ },
-      { label: '感官描写', m: /感官|听觉|视觉|触觉|气味/ },
-      { label: '环境描写', m: /环境|景物|天气|氛围/ },
-      { label: '修辞手法', m: /比喻|拟人|修辞|排比/ },
-      { label: '表达手法', m: /抒情|议论|表达|直说|口号/ }
-    ];
-    const hit = new Set();
-    issues.forEach(it => {
-      const txt = (it.title || '') + (it.desc || '');
-      scope.forEach(sc => { if (sc.m.test(txt)) hit.add(sc.label); });
-    });
-    const ordered = [...bank.filter(b => hit.has(b.key)), ...bank.filter(b => !hit.has(b.key))].slice(0, 3);
-    const related = i => {
-      const it = issues[i % Math.max(1, issues.length)];
-      return it ? `对应问题：${esc(it.title)}` : '对应问题：描写与细节还可再具体';
-    };
+    const issues = (R.report && R.report.issues) || [];
+    const P = R.essay.paras || [];
+    const drills = buildDrills(R, P, g);
 
     return `<div class="drill-list">
-      ${ordered.map((b, i) => `<div class="drill-card">
+      ${drills.map((b, i) => `<div class="drill-card">
         <div class="dc-head">
           <span class="dc-n">${i + 1}</span>
           <span class="dc-t">${esc(b.key)}<em>· ${esc(b.focus)}</em></span>
         </div>
-        <div class="dc-issue">${related(i)}</div>
-        <div class="dc-row"><span class="dc-k">练习</span><span class="dc-v">${esc(b.ask)}</span></div>
-        <div class="dc-row"><span class="dc-k">思路</span><span class="dc-v">${esc(b.idea)}</span></div>
-        <div class="dc-demo"><span class="dc-k">素材</span><span class="dc-v">${esc(b.demo)}</span></div>
+        ${b.relatedTitle ? `<div class="dc-issue">对应问题：${esc(b.relatedTitle)}</div>`
+          : (b.relatedFallback ? `<div class="dc-issue">本项针对：${esc(b.relatedFallback)}</div>` : '')}
+        <div class="dc-row dc-prob"><span class="dc-k">存在的问题</span><span class="dc-v">${esc(b.issue)}</span></div>
+        <div class="dc-row dc-idea"><span class="dc-k">思路</span><span class="dc-v">${esc(b.idea)}</span></div>
+        <div class="dc-row dc-demo"><span class="dc-k">例子</span><span class="dc-v">${esc(b.demo)}</span></div>
       </div>`).join('')}
     </div>
     <div class="upgrade-tip">写完可对照上方「存在问题清单」，看是否正好改掉了自己的弱项。练笔不必长，80~120 字即可。</div>`;
@@ -2703,43 +2717,48 @@
     setTimeout(() => { box.style.boxShadow = ''; }, 1800);
   }
 
-  // 润色稿：优先用 AI 返回的 polished；否则本地做增强润色（补细节、加修辞）
-  function buildPolished(R, P) {
-    const ai = (R.report && R.report.polished) || (R.polished) || null;
-    if (Array.isArray(ai) && ai.filter(x => x && String(x).trim().length > 2).length >= Math.max(1, Math.floor(P.length * 0.5))) {
-      return ai.filter(x => x && String(x).trim());
+
+  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明" */
+  function enrichTraceFromDiff(trace, origP, newP) {
+    const cnt = x => String(x || '').replace(/\s/g, '').length;
+    const o = origP.map(x => String(x || '')).join('');
+    const n = newP.map(x => String(x || '')).join('');
+    const feelRe = /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/;
+    if (feelRe.test(o) && !feelRe.test(n)) trace.push({ kind: 'emotion', from: '直接说情绪', to: '写身体反应' });
+    if (/(像|仿佛|似的)/.test(n) && !/(像|仿佛|似的)/.test(o)) trace.push({ kind: 'detail', list: ['新增比喻，让画面更具体'] });
+    if (/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(n) && !/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(o)) {
+      trace.push({ kind: 'detail', list: ['补充声音或触感细节'] });
     }
-    return localPolish(P);
+    if (cnt(n) > cnt(o) * 1.1) trace.push({ kind: 'detail', list: [`篇幅由 ${cnt(o)} 字扩充到 ${cnt(n)} 字`] });
+    return trace;
   }
 
-  function localPolish(P) {
-    const feelMap = {
-      感动: '鼻子一酸，眼眶热了一下', 难过: '喉咙像塞了棉花',
-      开心: '嘴角压不住地往上翘', 高兴: '忍不住笑出声，又赶紧捂住嘴',
-      紧张: '手心全是汗，指尖发凉', 害怕: '后背沁出一层薄汗',
-      生气: '太阳穴突突地跳', 惭愧: '脸一直烧到耳根'
-    };
+  function localPolish(P, trace) {
+    const cnt = v => String(v == null ? '' : v).replace(/\s/g, '').length;
+    const arr = Array.isArray(P) ? P : [];
+    const feelMap = { 感动: '鼻子一酸，眼眶热了一下', 难过: '喉咙像塞了棉花', 开心: '嘴角压不住地往上翘', 高兴: '忍不住笑出声，又赶紧捂住嘴', 紧张: '手心全是汗，指尖发凉', 害怕: '后背沁出一层薄汗', 生气: '太阳穴突突地跳', 惭愧: '脸一直烧到耳根' };
     const verbMap = [
-      [/走过去/g, '踮着脚挪过去'],
+      [/踮|走过去/g, '踮着脚挪过去'],
       [/弯下腰/g, '微微弓起背'],
       [/看了看/g, '眯着眼瞧了又瞧'],
-      [/坐下/g, '把椅子往桌前拖了拖才坐下']
+      [/([又便])?坐回去了/g, (m, pre) => (pre ? '慢慢缩回椅子上' : '又慢慢缩回椅子上')],
+      [/重演/g, '过了一遍又一遍']
     ];
-    // 与语境强相关的细节（双词共现才命中，避免单字误配）
     const detail = [
-      [[/厨房/, /拣菜|洗碗|锅|案板|做饭/], '水龙头哗哗地响，水珠一颗颗溅在案板上。'],
-      [[/那袋米|提一下|拎|重/, /手|肩|臂/], '袋子勒进掌心，指节被压得发白。'],
-      [[/笔尖|本子|作业|试卷/, /写|停|字|纸/], '铅笔在纸上蹭出细细的沙沙声，橡皮屑堆成一小撮。'],
-      [[/雪|冬天/, /白|冷|冻|街/], '呼出的气在眼前白了一小团，指尖冻得发木。'],
-      [[/掌心|搓/], '那双手背上横着几道浅浅的口子，摸上去有点扎。'],
-      [[/背影|影子/], '灯光把影子压在地上，肩膀一高一低。'],
-      [[/洗碗|水很凉|碗很多/], '油花浮在水面上，被冷水一激，凝成一层薄薄的白。'],
-      [[/门口|站在/], '门框的影子横在她脚边，一动不动。'],
-      [[/笑/], '她笑起来时，眼角的细纹一道一道地舒开。'],
-      [[/话|听得懂/], '那句话很轻，落在心里却沉。']
+      [/厨房|拣菜|洗碗|案板/, '水龙头哗哗地响，水珠一颗颗溅在案板上。'],
+      [/米|拎|提一下/, '袋子勒进掌心，指节被压得发白。'],
+      [/笔尖|本子|作业|试卷|纸/, '铅笔在纸上蹭出细细的沙沙声，橡皮屑堆成一小撮。'],
+      [/雪|冬天|冷/, '呼出的气在眼前白了一小团，指尖冻得发木。'],
+      [/掌心|搓|手/, '那双手背上横着几道浅浅的口子，摸上去有点扎。'],
+      [/背影|影子/, '灯光把影子压在地上，肩膀一高一低。'],
+      [/碗|油花/, '油花浮在水面上，被冷水一激，凝成一层薄薄的白。'],
+      [/门口|站在|门框/, '门框的影子横在她脚边，一动不动。'],
+      [/笑/, '她笑起来时，眼角的细纹一道一道地舒开。'],
+      [/话|听懂/, '那句话很轻，落在心里却沉。'],
+      [/梧桐|叶|风/, '叶片背面泛着一层灰白，边缘卷起来一点。'],
+      [/书桌|椅子|台灯/, '木纹里嵌着几道旧划痕，摸上去有点起毛。']
     ];
-    // 环境镜头池：按序取用，不重复
-    const fallback = [
+    const pool = [
       '窗外有车驶过，灯影在墙上滑了一下。',
       '空气里飘着一点饭菜味，混着洗洁精的清香。',
       '一片叶子贴在玻璃上，被风按了按，又松开。',
@@ -2751,43 +2770,357 @@
       '风把窗缝吹得呜呜响，像有人在低低地说话。',
       '桌上的水杯里，浮着一层细小的光。'
     ];
-    const used = new Set();
-    const takeFallback = () => {
-      for (const t of fallback) if (!used.has(t)) { used.add(t); return t; }
+    const usedTxt = new Set();
+    let poolIdx = 0;
+    const takePool = () => {
+      while (poolIdx < pool.length) {
+        const t = pool[poolIdx++];
+        if (!usedTxt.has(t)) { usedTxt.add(t); return t; }
+      }
       return '';
     };
 
-    return P.map((t, i) => {
-      let x = String(t || '').trim();
-      if (!x) return x;
+    const out = [];
+    for (let i = 0; i < arr.length; i++) {
+      let x = String(arr[i] == null ? '' : arr[i]).trim();
+      if (!x) { out.push(''); continue; }
+      let changed = false;
 
-      // ① 情绪外化
-      x = x.replace(/(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧)/g,
-        (m, a, b) => feelMap[b] || b);
-      // ② 动作升级
-      verbMap.forEach(([re, to]) => { x = x.replace(re, to); });
+      // 长句断句
+      if (cnt(x) > 42) {
+        const m = x.match(/^(.{12,}?)(但是|可是|于是|却|因为|所以|只是|而且)(.{8,})$/);
+        if (m) {
+          x = m[1].replace(/[，,]$/, '') + '。' + m[2] + m[3];
+          changed = true;
+          if (trace) trace.push({ kind: 'split', from: m[1].slice(0, 10) + '…', to: '在转折处拆成两句' });
+        }
+      }
+      // 情绪外化
+      const before = x;
+      x = x.replace(/(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧)/g, (m, a, b) => feelMap[b] || b);
+      if (x !== before) { changed = true; if (trace) trace.push({ kind: 'emotion', from: before, to: x }); }
+      // 动作具体化
+      for (const [re, to] of verbMap) {
+        if (!re.test(x)) continue;
+        const b = x;
+        x = x.replace(re, to);
+        if (x !== b) { changed = true; if (trace) trace.push({ kind: 'verb', from: (b.match(re) || [''])[0], to: String(to) }); }
+      }
+      // 补细节：每段若没有改动，必须补一处；有改动则不重复补
+      const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影|粗糙|软)/.test(x);
+      if (!changed || (i % 4 === 0 && !hasSense)) {
+        let add = '';
+        for (const [re, t] of detail) {
+          if (usedTxt.has(t)) continue;
+          if (re.test(x)) { usedTxt.add(t); add = t; break; }
+        }
+        if (!add) add = takePool();
+        if (add) {
+          x = /[。！？]$/.test(x) ? (x + add) : (x.replace(/[。！？]?$/, '。') + add);
+          changed = true;
+          if (trace) trace.push({ kind: 'detail', list: [add] });
+        }
+      }
+      out.push(x);
+    }
+    return out;
+  }
 
-      // ③ 补细节：每段最多补两处，已有比喻/感官的段落只补一处
-      const rich = /像|仿佛|似的|听见|闻到|摸到/.test(x);
-      const quota = rich ? 1 : 2;
-      const adds = [];
-      for (const [res, txt] of detail) {
-        if (adds.length >= quota) break;
-        if (used.has(txt)) continue;
-        if (res.every(re => re.test(x))) { used.add(txt); adds.push(txt); }
-      }
-      while (adds.length < quota) {
-        const f = takeFallback();
-        if (!f) break;
-        adds.push(f);
-      }
-      if (adds.length) x += adds.join('');
+  function buildPolished(R, P, trace) {
+    const ai = (R.report && R.report.polished) || (R.polished) || null;
+    if (Array.isArray(ai) && ai.filter(x => x && String(x).trim().length > 2).length >= Math.max(1, Math.floor(P.length * 0.5))) {
+      // AI 直接给出润色稿：按"逐段对照差异"归纳手法
+      const out = ai.filter(x => x && String(x).trim());
+      if (trace) enrichTraceFromDiff(trace, P, out);
+      return out;
+    }
+    return localPolish(P, trace);
+  }
 
-      // ④ 情绪最重处用短句停顿，制造长短句节奏
-      if (x.length > 60 && i % 4 === 2) {
-        x = x.replace(/([。！？])$/, '$1那一刻，屋里忽然很静。');
-      }
-      return x;
+  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明" */
+  function enrichTraceFromDiff(trace, origP, newP) {
+    const cnt = x => String(x || '').replace(/\s/g, '').length;
+    const o = origP.map(x => String(x || '')).join('');
+    const n = newP.map(x => String(x || '')).join('');
+    const feelRe = /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/;
+    if (feelRe.test(o) && !feelRe.test(n)) trace.push({ kind: 'emotion', from: '直接说情绪', to: '写身体反应' });
+    if (/(像|仿佛|似的)/.test(n) && !/(像|仿佛|似的)/.test(o)) trace.push({ kind: 'detail', list: ['新增比喻，让画面更具体'] });
+    if (/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(n) && !/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(o)) {
+      trace.push({ kind: 'detail', list: ['补充声音或触感细节'] });
+    }
+    if (cnt(n) > cnt(o) * 1.1) trace.push({ kind: 'detail', list: [`篇幅由 ${cnt(o)} 字扩充到 ${cnt(n)} 字`] });
+    return trace;
+  }
+
+
+
+  /* ================= 润色说明：本次改了什么 =================
+   * 依据润色过程中的变更记录，归纳成可读的几条"润色手法"，
+   * 每条 = 手法名称 + 具体做法 + 本文实例，供报告页展示。
+   */
+  function buildPolishNotes(trace, origP, newP) {
+    const t = trace || [];
+    const notes = [];
+    const cnt = x => String(x || '').replace(/\s/g, '').length;
+    const firstOf = kind => t.find(x => x.kind === kind);
+
+    const emo = t.filter(x => x.kind === 'emotion');
+    if (emo.length) {
+      notes.push({
+        name: '情绪外化',
+        desc: '把“很感动”“很难过”这类概括说法换成具体的身体反应，让读者看得见情绪。',
+        sample: emo.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
+      });
+    }
+
+    const verb = t.filter(x => x.kind === 'verb');
+    if (verb.length) {
+      notes.push({
+        name: '动作具体化',
+        desc: '把笼统的动作换成一个更有画面感的小动作，人物就有了过程。',
+        sample: verb.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
+      });
+    }
+
+    const det = t.filter(x => x.kind === 'detail');
+    if (det.length) {
+      const all = [];
+      det.forEach(d => d.list.forEach(x => { if (!all.includes(x)) all.push(x); }));
+      notes.push({
+        name: '补充细节',
+        desc: '在原句后接了声音、触感或环境细节，让场景从“看见”变成“在场”。',
+        sample: all.slice(0, 2).map(x => `「${x}」`).join('　')
+      });
+    }
+
+    const split = t.filter(x => x.kind === 'split');
+    if (split.length) {
+      notes.push({
+        name: '长句断句',
+        desc: '在转折词前把长句拆成两句，让朗读时有停顿，不再一口气读不完。',
+        sample: split.slice(0, 2).map(x => `${x.from} → ${x.to}`).join('　')
+      });
+    }
+
+    const oral = t.filter(x => x.kind === 'oral');
+    if (oral.length) {
+      notes.push({
+        name: '用词自然化',
+        desc: '把偏书面的词换成更贴近口语的说法，符合第一人称叙述的口吻。',
+        sample: oral.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
+      });
+    }
+
+    const pause = t.filter(x => x.kind === 'pause');
+    if (pause.length) {
+      notes.push({
+        name: '调整停顿',
+        desc: '在长句中间补一处逗号，让语气有呼吸，读起来不赶。',
+        sample: pause.slice(0, 1).map(x => `「${x.to}」`).join('')
+      });
+    }
+
+    if (firstOf('rhythm')) {
+      notes.push({
+        name: '调节节奏',
+        desc: '在情绪最重处插入一个短句停顿，长短句交替，读起来有呼吸。',
+        sample: '「……那一刻，屋里忽然很静。」'
+      });
+    }
+
+    // 段落层面：断句与过渡
+    const origLen = cnt(origP.join(''));
+    const newLen = cnt(newP.join(''));
+    if (newLen > origLen * 1.08) {
+      notes.push({
+        name: '扩充篇幅细节',
+        desc: `润色后由 ${origLen} 字增加到 ${newLen} 字，增量全部用于细节描写，未改变原意。`,
+        sample: ''
+      });
+    }
+    if (newP.length !== origP.length) {
+      notes.push({
+        name: '段落调整',
+        desc: `段落由 ${origP.length} 段调整为 ${newP.length} 段，让层次更清楚。`,
+        sample: ''
+      });
+    }
+
+    if (!notes.length) {
+      notes.push({
+        name: '语句润色',
+        desc: '在保留原意与叙事顺序的前提下，对用词和句子节奏做了整体打磨。',
+        sample: ''
+      });
+    }
+    return notes.slice(0, 6);
+  }
+
+  /* ================= 小练笔：按本文真实内容动态生成 =================
+   * 不再使用固定题库——每条练习都锚定本文的原句、原问题和真实细节，
+   * 保证同一篇作文每次生成一致，不同作文互不相同。
+   *
+   * 每条练习的结构（对齐参考排版）：
+   *   { key, focus, issue: 存在的问题, idea: 思路, demo: 例子 }
+   */
+  function buildDrills(R, P, g) {
+    const paras = (P || []).filter(x => x && String(x).trim().length > 4);
+    const issues = (R.report && R.report.issues) || [];
+    const cnt = s => String(s || '').replace(/\s+/g, '').length;
+    const short = (t, n) => {
+      const s = String(t || '').replace(/\s+/g, '');
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    };
+    // 抽出可复用的真实短语（按标点切分，取 6~18 字的片段）
+    const phrases = [];
+    paras.forEach(t => {
+      String(t).split(/[，。！？；：、]/).forEach(seg => {
+        const s = seg.replace(/\s+/g, '');
+        if (cnt(s) >= 5 && cnt(s) <= 18) phrases.push(s);
+      });
+    });
+    const pick = (i) => phrases.length ? phrases[i % phrases.length] : '';
+
+    const full = paras.join('');
+    const hasDialog = /[“"][^”"]{2,}[”"]/.test(full);
+    const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(full);
+    const hasSimile = /(像|仿佛|好似|如同)/.test(full);
+    const longSent = paras.find(t => /[^。！？；]{42,}/.test(t)) || '';
+    const longest = paras.reduce((a, b) => (cnt(b) > cnt(a) ? b : a), paras[0] || '');
+    const actionSent = paras.find(t => /(走|坐|站|拿|放|抬|低|握|握紧|伸|缩|转|看|望|擦|洗|推|拉)/.test(t)) || '';
+
+    // 挑出最值得练的三类，按本文短板优先
+    const cands = [];
+
+    // ① 若是长句问题，练「断句与节奏」，锚定那句原文
+    if (longSent) {
+      cands.push({
+        key: '断句与节奏', focus: '把长句拆成有呼吸的短句',
+        issue: `文中有句子超过 40 字未断开，一口气读不完：「${short(longSent, 20)}」`,
+        idea: '先找到“可、但、于是、却、因为”这类转折或因果词，在它前面断开；断完前后各留半句，读一遍不喘气就对了。',
+        demo: `「${short(longSent, 26)}」拆成两句后：「${short(longSent, 13)}。${short(longSent.slice(13), 13)}」`
+      });
+    }
+
+    // ② 若缺感官细节，练「感官描写」，锚定原文场景
+    if (!hasSense || cands.length < 3) {
+      const base = actionSent || longest || '';
+      cands.push({
+        key: '感官描写', focus: '给同一个场景补一声音、一触感',
+        issue: cands.some(c => c.key === '感官描写')
+          ? '文中的动作已有，但只有“看见”，缺少声音和触感，读者进不到现场。'
+          : `「${short(base, 18)}」这一处目前只写了看到的画面，缺声音和触感。`,
+        idea: '不要另起一段写，就在原句后面接半句：先想当时环境里最清楚的一个声音，再想手或皮肤碰到的东西。两句都别超过 20 字。',
+        demo: base
+          ? `在「${short(base, 14)}」后面加半句：「……；水龙头没关紧，滴答、滴答，一下一下敲在瓷盆上。」`
+          : '「她说话的时候，抽油烟机还在响，手背上有一层薄薄的凉。」'
+      });
+    }
+
+    // ③ 若动作概括，练「动作分解」，锚定原文动作
+    if (actionSent || cands.length < 3) {
+      const a = actionSent || '';
+      cands.push({
+        key: '动作分解', focus: '把一个动作拆成三拍来写',
+        issue: a
+          ? `「${short(a, 18)}」是一个整体动作，一笔带过，读者看不到过程。`
+          : '文中的动作多为整体交代，缺少过程，人物显得“不会动”。',
+        idea: '把一个动作拆成“手先动 → 身子跟 → 脚或眼睛最后收”三拍，每拍只用一个最准确的动词，中间可以用分号。',
+        demo: a
+          ? `原句「${short(a, 14)}」改成：「手撑在桌沿，身子往前倾了一下，又慢慢收回去。」`
+          : '「手撑在桌沿，身子往前倾了一下，脚却没动，又慢慢缩回去。」'
+      });
+    }
+
+    // ④ 若缺对话，练「用原话写场景」
+    if (!hasDialog && cands.length < 3) {
+      cands.push({
+        key: '对话描写', focus: '用一句原话代替心理独白',
+        issue: '全篇没有人物原话，情绪全靠叙述交代，读者听不到声音。',
+        idea: '在最关键的那一处，把“我想说”改成“我说出口的那一句”，只写一句，前后各留半句动作。',
+        demo: '「她说，你先写作业，这点事妈自己来。」说这句话时，她正把我的手往旁边拨了一下。'
+      });
+    }
+
+    // ⑤ 若比喻欠具体，练「找贴切的喻体」
+    if (!hasSimile && cands.length < 3) {
+      cands.push({
+        key: '比喻具体化', focus: '喻体要来自生活，别用空泛的词',
+        issue: '文中几乎没有比喻，描写多靠形容词；或比喻的喻体离生活太远，落不到画面。',
+        idea: '挑文中最重要的一个“物”或“人”，问自己：它在生活中像什么见过的东西？最好带动作或磨损感。',
+        demo: `把「${short(pick(1), 12)}」里的形容换掉，改成：「她的背影像一张被反复折过的纸，折痕处已经发白。」`
+      });
+    }
+
+    // ⑥ 兜底：环境映衬情绪
+    if (cands.length < 3) {
+      cands.push({
+        key: '环境映衬', focus: '让环境跟着人物情绪变化',
+        issue: '情绪转折处直接写“我很难过/我明白了”，没有借景。',
+        idea: '选一个会变的东西：光、风、雨、影子；在情绪转折那一刻让它变一下，不写心情词。',
+        demo: '云把太阳挡住了，屋里一下子暗下来；窗台的绿萝垂下去，叶尖上还挂着一滴水。'
+      });
+    }
+
+    // 优先选与批改问题直接相关的
+    const hitKey = (it) => {
+      const t = (it.title || '') + (it.desc || '');
+      if (/长句|断句|节奏|逗号/.test(t)) return '断句与节奏';
+      if (/感官|听觉|视觉|触觉|细节/.test(t)) return '感官描写';
+      if (/动作|描写|镜头/.test(t)) return '动作分解';
+      if (/对话|原话|台词/.test(t)) return '对话描写';
+      if (/比喻|修辞|形象/.test(t)) return '比喻具体化';
+      if (/抒情|议论|口号|直说/.test(t)) return '环境映衬';
+      return null;
+    };
+    const wanted = [];
+    issues.forEach(it => { const k = hitKey(it); if (k && !wanted.includes(k)) wanted.push(k); });
+
+    const ordered = [
+      ...cands.filter(c => wanted.includes(c.key)),
+      ...cands.filter(c => !wanted.includes(c.key))
+    ].slice(0, 3);
+
+    // 补上「对应问题」：按练习类型匹配问题，而不是按顺序硬配
+    const matchIssue = (key) => {
+      const want = {
+        '断句与节奏': /长句|断句|节奏|逗号|喘/,
+        '感官描写': /感官|听觉|视觉|触觉|声音|画面偏弱/,
+        '动作分解': /动作|过程|概括/,
+        '对话描写': /对话|原话|台词/,
+        '比喻具体化': /比喻|修辞|喻体/,
+        '环境映衬': /抒情|议论|口号|直说/
+      }[key];
+      if (!want) return null;
+      // 只按标题匹配，避免正文里偶然出现的“对话”“动作”等词造成误配
+      const hitTitle = issues.find(it => want.test(it.title || ''));
+      if (hitTitle) return hitTitle;
+      // 标题未命中时才看描述，且要求是问题主体（排除规范类泛描述）
+      return issues.find(it => {
+        if (/标点|通读|错别字/.test(it.title || '')) return false;
+        return want.test(it.desc || '');
+      }) || null;
+    };
+    return ordered.map((c, i) => {
+      const it = matchIssue(c.key);
+      return {
+        key: c.key,
+        focus: c.focus,
+        issue: c.issue,
+        idea: c.idea,
+        demo: c.demo,
+        relatedTitle: it ? it.title : '',
+        relatedDesc: it ? (it.desc || '') : '',
+        // 没有直接对应的问题时，说明这条练笔补的是哪类短板
+        relatedFallback: it ? '' : ({
+          '断句与节奏': '全文节奏',
+          '感官描写': '细节描写',
+          '动作分解': '动作描写',
+          '对话描写': '人物语言',
+          '比喻具体化': '语言表现力',
+          '环境映衬': '情绪表达'
+        }[c.key] || '描写能力')
+      };
     });
   }
 
@@ -2796,52 +3129,28 @@
     const base = window.ZPEXPORT.collect(d);
     const R = d.result;
     const P = base.paras;
-    const genreObj = GENRES.find(g => g.id === d.genreId) || {};
+    const g = GRADES.find(x => x.id === (d.gradeId || state.gradeId)) || GRADES[0];
+    const genreObj = GENRES.find(g2 => g2.id === d.genreId) || {};
 
-    // 润色稿：复用面板逻辑
-    const polished = buildPolished(R, P);
+    // 润色稿：复用面板逻辑，同时记录本次改了哪些内容
+    const polishTrace = [];
+    const polished = buildPolished(R, P, polishTrace);
+    const polishNotes = buildPolishNotes(polishTrace, P, polished);
 
-    // 小练笔：与右侧面板同源
-    const issues = R.report.issues || [];
-    const bank = [
-      { key: '描写手法', focus: '把"概括动作"改成"可看见的动作"',
-        ask: '从文中挑一处只说"做了什么"的句子，改写成 80 字左右的片段，要能让人看见手、脚、肩膀分别怎么动。',
-        idea: '先定一个 3 秒的瞬间，再按"手—身—眼—呼吸"的顺序写。',
-        demo: '他把试卷往抽屉里塞，指尖却卡在缝上，来回蹭了两下；肩膀跟着低下去。' },
-      { key: '感官描写', focus: '五种感觉里补两样',
-        ask: '选文中一个场景，补写听觉与触觉各一句，让读者"听见""摸到"。',
-        idea: '声音写远近与节奏，触觉写温度、粗细、软硬；两句都别超过 20 字。',
-        demo: '走廊尽头的饮水机在咕嘟作响；门把手上有一层薄薄的凉。' },
-      { key: '环境描写', focus: '用环境映衬心情',
-        ask: '为文中"情绪转折"的那一刻写 60 字环境描写，不出现心情词。',
-        idea: '选一个会变的东西：光、风、雨、影子；让它跟着人物情绪一起变。',
-        demo: '云把太阳挡住了，屋里一下子暗下来；窗台的绿萝垂下去，叶尖上还挂着一滴水。' },
-      { key: '修辞手法', focus: '一个贴切的比喻胜过三个堆砌',
-        ask: '给文中最重要的一个"物"或"人"写一个比喻，喻体必须来自日常生活。',
-        idea: '喻体越具体越好，最好带动作：不是"像纸"，而是"像被反复折过的纸"。',
-        demo: '她的背影像一张被折了很多次的纸，折痕处已经发白。' },
-      { key: '表达手法', focus: '用"不说破"代替直说',
-        ask: '把文中一句直接抒情的话，改成通过一个动作或细节来表现。',
-        idea: '先写下想表达的情绪，再问：人在这种情绪下会下意识做什么小动作？',
-        demo: '我把碗摞好，又拿抹布把桌角擦了两遍，其实那里什么也没有。' }
-    ];
-    const hit = new Set();
-    issues.forEach(it => {
-      const t = (it.title || '') + (it.desc || '');
-      if (/描写|动作|细节|镜头/.test(t)) hit.add('描写手法');
-      if (/感官|听觉|视觉|触觉/.test(t)) hit.add('感官描写');
-      if (/环境|景物|天气/.test(t)) hit.add('环境描写');
-      if (/比喻|拟人|修辞/.test(t)) hit.add('修辞手法');
-      if (/抒情|议论|表达|口号/.test(t)) hit.add('表达手法');
-    });
-    const drills = [...bank.filter(b => hit.has(b.key)), ...bank.filter(b => !hit.has(b.key))].slice(0, 3)
-      .map((b, i) => ({ ...b, issue: issues[i] ? `对应问题：${issues[i].title}` : '' }));
+
+    // 小练笔：与右侧面板同源，均按本文内容动态生成
+    const drills = buildDrills(R, P, g).map((b, i) => ({
+      ...b,
+      issue: b.issue,
+      ask: b.issue,          // 兼容导出层的 ask 字段
+      related: b.relatedTitle || b.relatedFallback || ''
+    }));
 
     // 图片真实宽高（用于 A4 白板裁切比例）
     const imgMeta = { imgW: d.w, imgH: d.h };
 
     return Object.assign(base, {
-      polished, drills, imgW: imgMeta.imgW, imgH: imgMeta.imgH,
+      polished, polishNotes, drills, imgW: imgMeta.imgW, imgH: imgMeta.imgH,
       genreTips: (genreObj.tips || []).slice(0, 3),
       genreName: genreObj.name || ''
     });
