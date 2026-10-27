@@ -5,48 +5,48 @@
   /* ---------- 年级规则 ---------- */
   // 字数区间按小学、初中常见要求推算：三 300-400，四 400-450，五 450-550，六 550-650，初一 600-700，初二 700-800，初三 800-900
   const GRADES = [
-    { id: 'g3',  name: '三年级', short: '三', range: [300, 400], label: '300~400字', total: 30,
+    { id: 'g3',  name: '三年级', short: '三', range: [300, 400], label: '300~400字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['能围绕一个意思写清楚，段与段之间分清层次', '尝试用总分结构组织短文', '把看到的、想到的写下来，句子完整', '会写常用的标点，注意字迹工整'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.86, two: 0.7, three: 0.55 } },
-    { id: 'g4',  name: '四年级', short: '四', range: [400, 450], label: '400~450字', total: 30,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'g4',  name: '四年级', short: '四', range: [400, 450], label: '400~450字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['写清楚事情的经过，把事情写具体', '按一定顺序组织材料，注意过渡', '尝试使用比喻、拟人等修辞', '标点使用规范，不写错别字'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.86, two: 0.7, three: 0.55 } },
-    { id: 'g5',  name: '五年级', short: '五', range: [450, 550], label: '450~550字', total: 30,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'g5',  name: '五年级', short: '五', range: [450, 550], label: '450~550字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['中心明确，能围绕中心选择材料', '分段合理，详略得当，有首尾呼应意识', '用词准确，能运用多种修辞把语句写生动', '书写规范，标点使用正确，错别字少'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.87, two: 0.71, three: 0.55 } },
-    { id: 'g6',  name: '六年级', short: '六', range: [550, 650], label: '550~650字', total: 30,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'g6',  name: '六年级', short: '六', range: [550, 650], label: '550~650字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['立意有真情实感，能写出自己的独特感受', '结构完整，详略分明，过渡自然', '语言有表现力，善用细节描写与修辞', '卷面整洁，标点与书写规范'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.87, two: 0.72, three: 0.56 } },
-    { id: 'j1',  name: '七年级', short: '初一', range: [600, 700], label: '600~700字', total: 40,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'j1',  name: '七年级', short: '初一', range: [600, 700], label: '600~700字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['立意明确，能从生活中提炼有意义的主题', '结构清晰，注意行文线索与层次推进', '语言通顺，能恰当使用描写与修辞手法', '书写规范，尽量避免错别字与病句'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.85, two: 0.7, three: 0.55 } },
-    { id: 'j2',  name: '八年级', short: '初二', range: [700, 800], label: '700~800字', total: 40,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'j2',  name: '八年级', short: '初二', range: [700, 800], label: '700~800字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['立意有一定深度，材料真实典型', '结构严谨，详略与节奏安排得当', '语言富有表现力，句式有变化', '书写工整，标点规范，少病句'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.85, two: 0.71, three: 0.56 } },
-    { id: 'j3',  name: '九年级', short: '初三', range: [800, 900], label: '800~900字', total: 40,
+      tier: { one: 90, two: 70, three: 0 } },
+    { id: 'j3',  name: '九年级', short: '初三', range: [800, 900], label: '800~900字', total: 100,
       dims: ['内容立意', '结构逻辑', '语言表达', '规范书写'],
       weights: [30, 25, 25, 20],
       rules: ['立意深刻，角度新颖，有思辨意识', '结构严密，过渡自然，照应巧妙', '语言凝练有文采，表达方式灵活', '卷面整洁，书写规范，无错别字'],
       levels: { one: '一类文', two: '二类文', three: '三类文' },
-      tier: { one: 0.85, two: 0.71, three: 0.56 } }
+      tier: { one: 90, two: 70, three: 0 } }
   ];
 
   const DIMS = [
@@ -387,11 +387,13 @@
     return { points, total, stats: s };
   }
 
+  /* 等级判定：直接用绝对分数
+   * 一类文 90~100，二类文 70~89，三类文 0~69 */
   function levelOf(grade, total) {
-    const ratio = total / grade.total;
-    if (ratio >= grade.tier.one) return { name: grade.levels.one, key: 'one', desc: '优秀', color: '#22a06b' };
-    if (ratio >= grade.tier.two) return { name: grade.levels.two, key: 'two', desc: '良好', color: '#5b5ce2' };
-    return { name: grade.levels.three, key: 'three', desc: '合格', color: '#e08a35' };
+    const t = grade.tier || { one: 90, two: 70, three: 0 };
+    if (total >= t.one) return { name: grade.levels.one, key: 'one', desc: '优秀', color: '#22a06b', range: '90~100' };
+    if (total >= t.two) return { name: grade.levels.two, key: 'two', desc: '良好', color: '#5b5ce2', range: '70~89' };
+    return { name: grade.levels.three, key: 'three', desc: '待提升', color: '#e08a35', range: '0~69' };
   }
 
   global.ZP = { GRADES, DIMS, GENRES, POOLS, buildEssay, analyze, scoreOf, levelOf, ISSUE_BANK, GOOD_BANK, pick, rand, keyOf };

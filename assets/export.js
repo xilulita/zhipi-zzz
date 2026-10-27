@@ -12,7 +12,7 @@
     const R = d.result;
     const sc = R.score, lv = R.level;
     const P = (R.essay.paras || []).filter(x => x && x.length > 2);
-    const g = (window.ZP.GRADES.find(x => x.id === d.gradeId) || { name: '', total: 30, label: '' });
+    const g = (window.ZP.GRADES.find(x => x.id === d.gradeId) || { name: '', total: 100, label: '' });
     const ge = (window.ZP.GENRES.find(x => x.id === d.genreId) || { name: '' });
     return {
       title: R.essay.title || d.name || '作文批改报告',
@@ -762,7 +762,7 @@ function hexA(hex, a) {
    *        给出可执行方向，纵向时间轴 + 节点标签 + 白卡。
    *   二、具体问题与修改思路 —— 以问题句作小标题，先概括问题，再给可操作步骤与示例。
    */
-  function secOutline(o) {
+  function outlineData(o) {
     const P = (o.paras || []).filter(x => x && String(x).trim().length > 2);
     const issues = o.issues || [];
     const cnt = s => String(s || '').replace(/\s+/g, '').length;
@@ -887,8 +887,14 @@ function hexA(hex, a) {
       fix: it.fix || '',
       steps: fixSteps(it)
     }));
+    return { diagLine, nodes, fixes };
+  }
 
-    /* ---------- 拼装 ---------- */
+  /* 渲染：写作思路（面板与导出共用 outlineData 的数据） */
+  function secOutline(o) {
+    /* ---------- 拼装（数据来自 outlineData，面板复用同一份） ---------- */
+    const D = outlineData(o);
+    const { diagLine, nodes, fixes } = D;
     const flowHTML = nodes.map(n => `
       <div class="ol-row">
         <span class="tag ${n.cls}">${n.tag}</span>
@@ -1186,5 +1192,5 @@ function hexA(hex, a) {
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
   }
 
-  global.ZPEXPORT = { collect, buildDocument, exportHTML, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview } };
+  global.ZPEXPORT = { collect, buildDocument, exportHTML, outlineData, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview, secOutline } };
 })(window);

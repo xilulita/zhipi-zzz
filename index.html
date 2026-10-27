@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>智批作文 · AI 作文智能批改</title>
-<link rel="stylesheet" href="assets/style.css?v=20261101s">
-<link rel="stylesheet" href="assets/board.css?v=20261101s">
-<link rel="stylesheet" href="assets/drill.css?v=20261101s">
+<link rel="stylesheet" href="assets/style.css?v=1793122120">
+<link rel="stylesheet" href="assets/board.css?v=1793122120">
+<link rel="stylesheet" href="assets/drill.css?v=1793122120">
 <style>
 /* ===== 网页版启动画面（首帧内联，避免白屏闪烁） ===== */
 #zp-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
@@ -133,8 +133,21 @@
               <input class="input input-sm" id="adKey" type="password" placeholder="sk-...">
             </div>
             <div class="ad-row"><label>模型</label>
-              <input class="input input-sm" id="adModel" placeholder="gpt-4o-mini">
+              <input class="input input-sm" id="adModel" placeholder="doubao-2.1-turbo">
             </div>
+            <div class="ad-row"><label>模式</label>
+              <div class="mode-seg" id="adMode">
+                <button class="mode-btn on" data-mode="fast" title="关闭深度思考，出结果最快">快速模式</button>
+                <button class="mode-btn" data-mode="quality" title="开启深度思考，更细致但耗时更长">质量模式</button>
+              </div>
+            </div>
+            <div class="ad-row ad-row-temp"><label>温度</label>
+              <div class="temp-wrap">
+                <input type="range" id="adTemp" min="0" max="1" step="0.05" value="0.25">
+                <span class="temp-val" id="adTempVal">0.25</span>
+              </div>
+            </div>
+            <div class="ad-hint" id="adModeHint">快速模式：关闭深度思考，批改更快，适合日常作文。</div>
             <div class="ad-actions">
               <button class="ad-btn ghost" id="adTest">测试连接</button>
               <button class="ad-btn primary" id="adSave">保存配置</button>
@@ -264,9 +277,9 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="assets/data.js?v=1793121054"></script>
-<script src="assets/export.js?v=1793121054"></script>
-<script src="assets/ai.js?v=1793121054"></script>
-<script src="assets/app.js?v=1793121054"></script>
+<script src="assets/data.js?v=1793122377"></script>
+<script src="assets/export.js?v=1793122377"></script>
+<script src="assets/ai.js?v=1793122377"></script>
+<script src="assets/app.js?v=1793122377"></script>
 </body>
 </html>

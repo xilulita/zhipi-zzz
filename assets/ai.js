@@ -103,9 +103,12 @@ ${dims}
   async function callAPI(cfg, prompt, imgDataUrl, signal) {
     const imgs = Array.isArray(imgDataUrl) ? imgDataUrl : [imgDataUrl];
     const base = cfg.base.replace(/\/+$/, '');
+    // 温度：默认 0.25（批改需要稳定），可由用户调节 0~1
+    const temp = (typeof cfg.temperature === 'number')
+      ? Math.min(1, Math.max(0, cfg.temperature)) : 0.25;
     const body = {
       model: cfg.model,
-      temperature: 0.25,
+      temperature: temp,
       messages: [{
         role: 'user',
         content: [
@@ -116,6 +119,18 @@ ${dims}
     };
     // 支持 JSON 模式的模型附加 response_format
     if (!/claude|gemini/i.test(cfg.model || '')) body.response_format = { type: 'json_object' };
+
+    /* ---- 深度思考开关（豆包 / 火山方舟 2.1 turbo 等支持） ----
+     * 快速模式：thinking.type = 'disabled'，跳过思考链，批改更快
+     * 质量模式：thinking.type = 'enabled'，模型先思考再作答
+     * 其他兼容接口若忽略该字段，不会影响请求；不支持的会返回 400，
+     * 此时自动去掉该字段重试一次，保证兼容性。 */
+    const thinkingOn = cfg.thinking === true;
+    const modelName = String(cfg.model || '').toLowerCase();
+    const supportsThinking = /doubao|seed|ark|volc|deepseek|qwen|glm|kimi/.test(modelName);
+    if (supportsThinking) {
+      body.thinking = { type: thinkingOn ? 'enabled' : 'disabled' };
+    }
 
     let res;
     try {
@@ -131,6 +146,27 @@ ${dims}
     } catch (e) {
       if (e && e.name === 'AbortError') { const er = new Error('已取消'); er.code = 'ABORTED'; throw er; }
       throw new Error('网络请求失败：' + (e.message || '可能被浏览器跨域拦截，请检查接口地址'));
+    }
+    // 兼容：若接口不认 thinking / response_format 字段（400/422），去掉后重试一次
+    if (!res.ok && (res.status === 400 || res.status === 422) && (body.thinking || body.response_format)) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.error?.message || JSON.stringify(j).slice(0, 160); } catch (e) {}
+      const retryBody = Object.assign({}, body);
+      delete retryBody.thinking;
+      delete retryBody.response_format;
+      try {
+        const r2 = await fetch(base + '/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+          body: JSON.stringify(retryBody),
+          signal
+        });
+        if (r2.ok) { res = r2; }
+        else { throw new Error(`接口返回 ${res.status}${detail ? '：' + detail : ''}`); }
+      } catch (e) {
+        if (e && e.name === 'AbortError') { const er = new Error('已取消'); er.code = 'ABORTED'; throw er; }
+        throw new Error(`接口返回 ${res.status}${detail ? '：' + detail : ''}`);
+      }
     }
     if (!res.ok) {
       let detail = '';

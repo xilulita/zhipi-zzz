@@ -711,6 +711,24 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .ad-row{margin-bottom:7px}
 .ad-row label{display:block;font-size:9.5px;color:#9aa0ad;margin-bottom:3px;font-weight:500}
 .ad-row .input-sm{height:30px;font-size:11px;border-radius:7px;padding:0 8px}
+
+/* 快速 / 质量模式切换 */
+.mode-seg{display:flex;gap:4px;background:#f2f4f9;border-radius:8px;padding:3px}
+.mode-btn{flex:1;height:26px;border-radius:6px;font-size:10.5px;font-weight:600;
+  color:#7b8296;background:transparent;border:0;cursor:pointer;transition:.16s;white-space:nowrap}
+.mode-btn:hover{color:var(--brand)}
+.mode-btn.on{background:#fff;color:#5b5ce2;font-weight:700;
+  box-shadow:0 1px 4px rgba(20,23,45,.10)}
+.ad-hint{font-size:9.5px;line-height:1.6;color:#9aa0ad;margin:2px 0 8px;
+  padding:5px 8px;background:#f8f9fc;border-radius:6px}
+
+/* 温度调节条 */
+.ad-row-temp label{margin-bottom:5px}
+.temp-wrap{display:flex;align-items:center;gap:8px}
+.temp-wrap input[type=range]{flex:1;height:16px;margin:0}
+.temp-val{flex:0 0 34px;text-align:right;font-size:10.5px;font-weight:700;
+  color:#5b5ce2;font-variant-numeric:tabular-nums}
+
 .ad-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:8px}
 .ad-btn{height:28px;border-radius:7px;font-size:10.5px;font-weight:600;transition:.15s}
 .ad-btn.ghost{background:#fff;border:1px solid var(--line-2);color:#6b7080}
@@ -1419,6 +1437,55 @@ canvas-wrap img{-webkit-user-drag:none}
 .anno:active{cursor:grabbing}
 .anno.dragging{box-shadow:0 8px 26px rgba(99,102,241,.24);border-color:#c9c6f5;z-index:5}
 .anno.dragging ~ .anno{pointer-events:none}
+
+/* ===== 写作思路（新版，与导出口径一致） ===== */
+.pn-diag{font-size:10.7px;line-height:1.75;color:#5a6072;background:#f7f9fd;
+  border:1px solid #e8ecf7;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+.pn-sub2{font-size:9.9px;color:#9aa0ad;line-height:1.6;margin-bottom:9px;padding-left:2px}
+.pn-flow{position:relative;padding-left:52px}
+.pn-flow::before{content:"";position:absolute;left:40px;top:10px;bottom:10px;
+  width:1.5px;background:#dfe5f2}
+.pn-row{position:relative;margin-bottom:9px}
+.pn-row:last-child{margin-bottom:0}
+.pn-tag{position:absolute;left:-52px;top:3px;width:46px;height:19px;line-height:19px;
+  text-align:center;font-size:9.4px;font-weight:700;border-radius:5px;z-index:2}
+.pn-tag::after{content:"";position:absolute;right:-8px;top:9px;width:8px;height:1.5px;background:#dfe5f2}
+.pn-tag.s1{color:#3b82f6;background:#e8f0fe}
+.pn-tag.s2{color:#18885f;background:#e6f6ee}
+.pn-tag.s3{color:#c2760c;background:#fdf3e2}
+.pn-body{background:#fff;border:1px solid #eaeef6;border-radius:8px;padding:8px 10px}
+.pn-lead{font-size:10.6px;font-weight:700;color:#2a2f3d;line-height:1.6;margin-bottom:5px}
+.pn-item{display:flex;gap:5px;font-size:10.2px;line-height:1.72;color:#5a6072;
+  margin-bottom:3px;align-items:flex-start}
+.pn-item .pd-n{flex:0 0 13px;height:13px;border-radius:50%;background:#eef2fb;color:#5f6b85;
+  font-size:8.5px;font-weight:700;line-height:13px;text-align:center;margin-top:2px}
+.pn-item span:last-child{flex:1;min-width:0;word-break:break-word}
+.pn-ex{margin-top:5px;padding:5px 8px;background:#f8fafd;border-radius:5px;
+  font-size:9.8px;line-height:1.65;color:#7c8497}
+
+/* 具体问题与修改思路卡片 */
+.pn-fix{background:linear-gradient(180deg,#f4fbf7,#fbfefc);border:1px solid #dff0e6;
+  border-left:3px solid #35a06a;border-radius:9px;padding:9px 11px;margin-bottom:8px}
+.pn-fix:last-child{margin-bottom:0}
+.pn-fix-h{font-size:10.9px;font-weight:800;color:#1f3b2e;line-height:1.65;margin-bottom:4px}
+.pn-fix-h .pf-n{color:#2f8f60;margin-right:2px}
+.pn-fix-d{font-size:10.2px;line-height:1.7;color:#5b666f;margin-bottom:6px}
+.pn-fix-steps{border-top:1px dashed #dcece3;padding-top:6px}
+.pn-step{display:flex;gap:5px;font-size:10.1px;line-height:1.68;color:#4d5a54;
+  margin-bottom:3px;align-items:flex-start}
+.pn-step:last-child{margin-bottom:0}
+.pn-step .ps-n{flex:0 0 13px;height:13px;border-radius:50%;background:#e3f2ea;color:#2f8f60;
+  font-size:8.5px;font-weight:700;line-height:13px;text-align:center;margin-top:2px}
+.pn-step span:last-child{flex:1;min-width:0;word-break:break-word}
+
+/* 本次润色说明 */
+.pn-notes{display:flex;flex-direction:column;gap:7px}
+.pn-note{border:1px solid #e9eef4;border-radius:8px;padding:8px 10px;background:#fbfcfe}
+.pn-note-h{font-size:10.8px;font-weight:800;color:#1f6b8a;margin-bottom:3px}
+.pn-note-h::before{content:"·";color:#4aa96c;font-weight:900;margin-right:3px}
+.pn-note-d{font-size:10.2px;line-height:1.68;color:#5b6472}
+.pn-note-s{margin-top:5px;font-size:9.9px;line-height:1.62;color:#7a8194;
+  background:#f4f7fb;border-radius:5px;padding:5px 7px;word-break:break-word}
 
 /* 写作思路：现状诊断 + 下一步方向 */
 .outline-now{margin-bottom:12px;padding:10px 11px;border-radius:10px;

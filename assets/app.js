@@ -47,7 +47,7 @@
     return Math.max(836, Math.round(bottom + 40));
   }
 
-  const getGrade = () => GRADES.find(g => g.id === state.gradeId) || { id: null, name: '未选年级', label: '请先选择', total: 30, rules: [], range: [0, 0] };
+  const getGrade = () => GRADES.find(g => g.id === state.gradeId) || { id: null, name: '未选年级', label: '请先选择', total: 100, rules: [], range: [0, 0] };
   const getGenre = () => GENRES.find(g => g.id === state.genreId) || GENRES[0];
   const activeDoc = () => state.docs.find(d => d.id === state.activeId) || null;
   let uid = 0;
@@ -1840,7 +1840,7 @@
     $('#aiBadge').textContent = d && d.result ? 'AI 批改完成' : 'AI 已就绪';
     if (!d) { box.innerHTML = emptyReport('还没有作文', '上传作文图片并点击「一键批改」，<br>这里会生成完整的批改报告。'); return; }
     if (!d.result) {
-      const g = GRADES.find(x => x.id === d.gradeId) || { name: '未选年级', label: '—', total: 30 };
+      const g = GRADES.find(x => x.id === d.gradeId) || { name: '未选年级', label: '—', total: 100 };
       const ge = GENRES.find(x => x.id === d.genreId) || GENRES[0];
       const isDemoDoc = !!d.isDemo;
 
@@ -1897,10 +1897,6 @@
           <div class="rg-item">
             <span class="rg-k">亮点</span>
             <span class="rg-d">3 条文章亮点，逐条引用原文原句</span>
-          </div>
-          <div class="rg-item">
-            <span class="rg-k">问题</span>
-            <span class="rg-d">存在问题清单，标注严重程度与修改建议</span>
           </div>
           <div class="rg-item">
             <span class="rg-k">批注</span>
@@ -2028,112 +2024,54 @@
       ${R.report.highlights.map((h, i) => `<div class="hl"><span class="n">${i + 1}</span><div class="tx"><b>${h.t}</b>　${h.d}</div></div>`).join('')}
     </div>
     <div class="card">
-      <div class="card-h"><span class="ic" style="background:#fff4e5;color:#d97706">!</span>存在问题清单<span class="cnt">${R.report.issues.length} 项</span></div>
-      ${R.report.issues.map(it => `<div class="issue">
-        <div class="issue-h"><span class="ti">${it.title}</span><span class="sev ${it.sev}">${it.sev === 'high' ? '重要' : it.sev === 'mid' ? '中等' : '轻微'}</span></div>
-        <div class="ds">${it.desc}</div>
-        ${it.ex ? `<div class="ex">${it.ex}</div>` : ''}</div>`).join('')}
-    </div>
-    <div class="card">
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">📝</span>总评<span class="cnt">${R.report.review.replace(/<[^>]+>/g, '').length} 字</span></div>
       <div class="review">${R.report.review}</div>
     </div>`;
   }
 
   /* ============ Tab2：写作思路 ============ */
+  /* 与导出共用 outlineData 的数据，保证两侧口径完全一致 */
   function paneOutline(R, g) {
     const ge = R.report.genre || {};
-    const P = (R.essay.paras || []).filter(x => x && x.length > 4);
-    const iss = R.report.issues || [];
-    const issTitles = iss.map(i => i.title).filter(Boolean).slice(0, 3);
-    const text = P.join('');
-    const cut = (t, n) => String(t || '').replace(/\s+/g, '').slice(0, n);
-
-    // 先判断这篇"现在是什么样"，再给"如果再写一次可以怎么写"
-    const hasDialog = /[“"][^”"]{2,}[”"]/.test(text);
-    const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影)/.test(text);
-    const longSent = P.some(t => /[^。！？]{45,}/.test(t));
-    const shortParas = P.filter(t => t.length < 30).length;
-    const hasEndEcho = (() => {
-      const f = cut(P[0], 6), l = cut(P[P.length - 1] || '', 40);
-      if (!f) return false;
-      return l.includes(f.slice(0, 3));
-    })();
-
-    // 目前状态诊断（基于全文）
-    const now = [];
-    now.push(P.length
-      ? `全文 ${P.length} 段，主线是“${cut(P[0], 14)}…”开头，以“${cut(P[P.length - 1], 14)}…”收尾。`
-      : '暂未识别到正文段落。');
-    if (longSent) now.push('中段有一处句子过长，读起来节奏偏赶。');
-    if (!hasDialog) now.push('全文以叙述为主，没有人物原话，现场感偏弱。');
-    if (!hasSense) now.push('感官描写较少，多是"看见什么"，少了声音与触感。');
-    if (shortParas >= 2) now.push(`有 ${shortParas} 个过短的段落，层次被切得偏碎。`);
-    if (hasEndEcho) now.push('结尾已经回扣开头，结构上是完整的。');
-
-    // 如果再写一次，可以朝这些方向走
-    const next = [
-      { k: '开头', dir: '换成"动作开场"',
-        how: '直接写人物正在做的一个动作，把时间地点藏在动作里，比先交代背景更快进戏。',
-        eg: '例如：先写一只手伸向门把，再交代这是哪一天。' },
-      { k: '展开', dir: hasDialog ? '把对话挪到关键处' : '加一句人物原话',
-        how: hasDialog
-          ? '现有对话位置偏散，可把最能改变情绪的那句话摆到转折点上，前后各留半句留白。'
-          : '在最紧张或最安静的那一刻，让人物说一句原话（带引号），比转述更有现场感。',
-        eg: '一句话就够，别写成大段对白。' },
-      { k: '细节', dir: hasSense ? '让五感轮流上场' : '补声音与触感',
-        how: hasSense
-          ? '现有感官偏视觉，可再补一处听觉（远处的声音）和一处触觉（温度、粗细）。'
-          : '挑最关键的一段，补"听见的"和"摸到的"各一句，画面立刻立体。',
-        eg: '一句不超过 20 字，两句就能撑起一个场景。' },
-      { k: '转折', dir: '把情绪落到身体上',
-        how: '不写"我很感动/很难过"，改为写身体反应：手心、喉咙、呼吸、眼眶。',
-        eg: '例如：喉咙像塞了棉花，一句话也说不出来。' },
-      { k: '结尾', dir: hasEndEcho ? '保持回环，再收得更静' : '回到开头那件"物"',
-        how: hasEndEcho
-          ? '回环已经有了，可把最后一句再压短，停在一个动作或声音上，不要下结论。'
-          : '让开头出现过的那件物、那个声音再出现一次，全文就合上了。',
-        eg: '结尾少一个感叹号，多一分余味。' }
-    ];
-
-    const tips = [
-      { icon: '①', title: '这篇现在最值得改的三处', body: [
-        issTitles[0] ? `<b>${esc(issTitles[0])}</b>：这是本文最影响得分的一处，先改它。`
-          : '<b>中段可以再放慢</b>：把最关键的那一瞬间拆成三个动作来写。',
-        issTitles[1] ? `<b>${esc(issTitles[1])}</b>：改完第一处再处理它，一次别改太多。`
-          : '<b>句子节奏</b>：把超过 40 字的长句在转折处断开。',
-        issTitles[2] ? `<b>${esc(issTitles[2])}</b>：这类小问题通读一遍就能解决。`
-          : '<b>结尾收束</b>：把总结的话换成动作或声音。'
-      ] }
-    ];
+    const o = {
+      paras: (R.essay.paras || []).filter(x => x && String(x).trim().length > 2),
+      issues: R.report.issues || [],
+      words: R.essay.words
+    };
+    const D = (window.ZPEXPORT && window.ZPEXPORT.outlineData)
+      ? window.ZPEXPORT.outlineData(o)
+      : { diagLine: '', nodes: [], fixes: [] };
+    const { diagLine, nodes, fixes } = D;
 
     return `
     <div class="card">
-      <div class="card-h"><span class="ic" style="background:#eef0ff;color:#5b5ce2">◎</span>${esc(ge.name || g.name)} · 写作思路
+      <div class="card-h"><span class="ic" style="background:#eef0ff;color:#5b5ce2">◎</span>${esc(ge.name || g.name)} · 参考写作思路
         <span class="cnt">按全文给出下一步方向</span></div>
-      <div class="outline-now">
-        <div class="on-h">这篇现在是这样</div>
-        ${now.map(t => `<div class="on-i">${esc(t)}</div>`).join('')}
-      </div>
-      <div class="outline-next">
-        <div class="on-h">如果再写一次，可以这样走</div>
-        ${next.map(r => `<div class="nx-row">
-          <div class="nx-k">${r.k}</div>
-          <div class="nx-b">
-            <div class="nx-d">${esc(r.dir)}</div>
-            <div class="nx-h">${esc(r.how)}</div>
-            <div class="nx-e">${esc(r.eg)}</div>
+      <div class="pn-diag">先看现状：${esc(diagLine)}</div>
+      <div class="pn-sub2">下面按段落功能给出一条可参考的写法路径，可对照自己的作文逐段调整。</div>
+      <div class="pn-flow">
+        ${nodes.map(n => `<div class="pn-row">
+          <span class="pn-tag ${n.cls}">${n.tag}</span>
+          <div class="pn-body">
+            <div class="pn-lead">${esc(n.lead)}</div>
+            ${n.items.map((x, k) => `<div class="pn-item"><span class="pd-n">${k + 1}</span><span>${esc(x)}</span></div>`).join('')}
+            ${n.ex ? `<div class="pn-ex">${esc(n.ex)}</div>` : ''}
           </div>
         </div>`).join('')}
       </div>
     </div>
-    <div class="card">
-      <div class="card-h"><span class="ic" style="background:#fff7ed;color:#d97706">💡</span>写作小技巧</div>
-      ${tips.map(t => `<div class="tip-block">
-        <div class="tb-h"><span class="tb-n">${t.icon}</span>${esc(t.title)}</div>
-        <div class="tb-body">${t.body.map(x => `<div class="tb-item">${x}</div>`).join('')}</div>
+    ${fixes.length ? `<div class="card">
+      <div class="card-h"><span class="ic" style="background:#e9f6ef;color:#2f8f60">✓</span>具体问题与修改思路
+        <span class="cnt">${fixes.length} 处</span></div>
+      <div class="pn-sub2">针对本篇最值得优先处理的问题，每条给出可落地的改法。</div>
+      ${fixes.map((f, i) => `<div class="pn-fix">
+        <div class="pn-fix-h"><span class="pf-n">${i + 1}.</span>${esc(f.t)}</div>
+        ${f.d ? `<div class="pn-fix-d">${esc(f.d)}</div>` : ''}
+        <div class="pn-fix-steps">
+          ${f.steps.map((x, k) => `<div class="pn-step"><span class="ps-n">${k + 1}</span><span>${esc(x)}</span></div>`).join('')}
+        </div>
       </div>`).join('')}
-    </div>`;
+    </div>` : ''}`;
   }
 
   /* ============ Tab3：小练笔 ============ */
@@ -2155,17 +2093,18 @@
         <div class="dc-row dc-demo"><span class="dc-k">例子</span><span class="dc-v">${esc(b.demo)}</span></div>
       </div>`).join('')}
     </div>
-    <div class="upgrade-tip">写完可对照上方「存在问题清单」，看是否正好改掉了自己的弱项。练笔不必长，80~120 字即可。</div>`;
+    <div class="upgrade-tip">写完可回到「写作思路」里的「具体问题与修改思路」，看是否正好改掉了自己的弱项。练笔不必长，80~120 字即可。</div>`;
   }
 
   /* ============ Tab4：润色后文章 ============ */
   function panePolish(R, g) {
-    const P = R.essay.paras.filter(x => x && x.length > 4);
+    const P = R.essay.paras.filter(x => x && String(x).trim().length > 2);
     const title = R.essay.title || '未命名';
-    // 用批改意见逐段润色：补细节、断长句、换具体表达
-    const polished = buildPolished(R, P);
+    // 与导出一致：同一个润色器 + 同一份变更记录
+    const trace = [];
+    const polished = buildPolished(R, P, trace);
+    const notes = buildPolishNotes(trace, P, polished);
     const words = polished.join('').replace(/\s/g, '').length;
-    const [lo] = g.range || [0, 0];
 
     return `<div class="card">
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">✎</span>润色后文章
@@ -2174,8 +2113,19 @@
         <div class="pp-title">${esc(title)}</div>
         ${polished.map(t => `<p>${esc(t)}</p>`).join('')}
       </div>
-      <div class="upgrade-tip"><b>润色说明：</b>保留原文结构与真实素材，只在三处动笔：把概括情绪换成身体反应、把长句在转折处断开、在开头补一句环境画面。全文完整呈现，不因超出字数而删减。</div>
-    </div>`;
+    </div>
+    ${notes.length ? `<div class="card">
+      <div class="card-h"><span class="ic" style="background:#e9f6ef;color:#2f8f60">✓</span>本次润色说明
+        <span class="cnt">${notes.length} 项</span></div>
+      <div class="pn-sub2">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
+      <div class="pn-notes">
+        ${notes.map(n => `<div class="pn-note">
+          <div class="pn-note-h">${esc(n.name)}</div>
+          <div class="pn-note-d">${esc(n.desc)}</div>
+          ${n.sample ? `<div class="pn-note-s">${esc(n.sample)}</div>` : ''}
+        </div>`).join('')}
+      </div>
+    </div>` : ''}`;
   }
 
   function switchTab(k) {
@@ -2629,6 +2579,29 @@
         $$('.ad-pane').forEach(p => p.classList.toggle('on', p.dataset.pane === t.dataset.mode));
       });
 
+      // ---- 快速 / 质量模式 ----
+      function updateModeHint(m) {
+        const el = $('#adModeHint');
+        if (!el) return;
+        el.textContent = m === 'quality'
+          ? '质量模式：开启深度思考，批改更细致，耗时与 token 消耗更高。'
+          : '快速模式：关闭深度思考，批改更快，适合日常作文。';
+      }
+      $$('.mode-btn').forEach(b => {
+        b.onclick = () => {
+          $$('.mode-btn').forEach(x => x.classList.toggle('on', x === b));
+          updateModeHint(b.dataset.mode);
+        };
+      });
+      const tempEl = $('#adTemp'), tempVal = $('#adTempVal');
+      if (tempEl) tempEl.oninput = () => {
+        if (tempVal) tempVal.textContent = Number(tempEl.value).toFixed(2);
+      };
+      function readMode() {
+        const on = document.querySelector('.mode-btn.on');
+        return on ? on.dataset.mode : 'fast';
+      }
+
       function refreshBadge() {
         const c = read();
         const el = $('#adCur');
@@ -2643,6 +2616,15 @@
         if (cfg.api.base) $('#adBase').value = cfg.api.base;
         if (cfg.api.key) $('#adKey').value = cfg.api.key;
         if (cfg.api.model) $('#adModel').value = cfg.api.model;
+        // 模式：默认快速（关闭深度思考）
+        const pm = cfg.api.thinking === true ? 'quality' : 'fast';
+        $$('.mode-btn').forEach(b => b.classList.toggle('on', b.dataset.mode === pm));
+        updateModeHint(pm);
+        // 温度
+        const tp = (typeof cfg.api.temperature === 'number') ? cfg.api.temperature : 0.25;
+        const tpEl = $('#adTemp'), tvEl = $('#adTempVal');
+        if (tpEl) tpEl.value = String(tp);
+        if (tvEl) tvEl.textContent = tp.toFixed(2);
       }
       if (cfg.local) {
         if (cfg.local.engine) $('#adEngine').value = cfg.local.engine;
@@ -2660,7 +2642,11 @@
         if (!base || !key || !model) return toast('请填写接口地址、API Key 与模型名称');
         const c = read();
         c.mode = 'api';
-        c.api = { provider: $('#adProvider').value, base, key, model };
+        c.api = {
+          provider: $('#adProvider').value, base, key, model,
+          thinking: readMode() === 'quality',
+          temperature: Number($('#adTemp') ? $('#adTemp').value : 0.25)
+        };
         write(c); refreshBadge(); syncDemoUI(); toast('AI 接口配置已保存，可以开始批改了');
       };
       $('#adTest').onclick = async () => {
