@@ -3,8 +3,23 @@
   "version": "1.2.5",
   "description": "智批作文桌面版",
   "private": true,
+  "license": "MIT",
   "main": "electron/main.js",
   "author": "智批作文",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xilulita/zhipi-zzz.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xilulita/zhipi-zzz/issues"
+  },
+  "homepage": "https://github.com/xilulita/zhipi-zzz#readme",
+  "keywords": [
+    "electron",
+    "作文批改",
+    "ai",
+    "education"
+  ],
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win nsis --x64"

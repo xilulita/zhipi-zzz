@@ -1,0 +1,44 @@
+# 统一换行符，避免 Windows / macOS 协作时整文件 diff
+* text=auto eol=lf
+
+# Windows 专用脚本与配置保留 CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# 源码与脚本
+*.js    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# 二进制文件，禁止换行符转换与文本 diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.exe   binary
+*.dll   binary
+*.zip   binary
+*.7z    binary
+*.pdf   binary
+
+# 第三方压缩库视为源码文件，但不在 diff 中展开
+assets/jspdf.min.js       linguist-generated -diff
+assets/html2canvas.min.js linguist-generated -diff
+
+# GitHub 语言统计归类
+*.js   linguist-detectable=true
+*.css  linguist-detectable=true
+*.html linguist-detectable=true
+assets/*.min.js linguist-vendored
+
+# 发行版打包产物不参与导出
+dist/** export-ignore
+out/**  export-ignore
+qa/**   export-ignore
