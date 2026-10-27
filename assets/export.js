@@ -1,6 +1,5 @@
-/* ===== 智批作文 · 导出模块（A4 竖版 / 一键直下） =====
- * PDF：jsPDF + html2canvas，点击即下载，不经过打印面板
- * HTML：自包含单文件，同样 A4 排版
+/* ===== 智批作文 · 导出模块（HTML · A4 分页 / 一键直下） =====
+ * 自包含单文件 HTML，每页一个 A4 容器，点击即下载
  */
 (function (global) {
   'use strict';
@@ -47,7 +46,7 @@
 
 
   /* 块渲染专用样式（与网页版一致的视觉语言） */
-  /* ================= 统一导出样式（PDF 与 HTML 共用，确保完全一致） ================= */
+  /* ================= 统一导出样式（各页共用，确保版式一致） ================= */
   const EXPORT_CSS = `
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   body{margin:0;background:#fff;font-family:"PingFang SC","Microsoft YaHei",sans-serif;color:#22242b}
@@ -663,7 +662,7 @@ function hexA(hex, a) {
       ? o.pages.map(pg => ({ img: pg.img, w: pg.w, h: pg.h, page: pg.page,
           annos: o.annos.filter(a => (a.page || 1) === pg.page) }))
       : [{ img: o.img, w: o.imgW, h: o.imgH, page: 1, annos: o.annos }];
-    // HTML 里每页白板也是独立一页（同 PDF），由页尾脚本做真实测量摆卡
+    // 每页白板独立成一页，由页尾脚本做真实测量摆卡
     return pages.map((pg, i) => `<div class="sheet-page" data-page="${pg.page}">
       <div class="sheet-inner">${boardPageHTML(pg, pages.length, {
         availW: PAGE.w - 40, availH: PAGE.h - 76
@@ -802,14 +801,14 @@ function hexA(hex, a) {
 
   function secFooter(o) { return ''; }
 
-  /* HTML 长文档：与 PDF 完全同构 —— 每页一个 A4 页容器，白板页内嵌真实测量脚本 */
+  /* 长文档：每页一个 A4 页容器，白板页内嵌真实测量脚本 */
   function buildLongDocument(o) {
     if (!Array.isArray(o.polished)) o.polished = (o.paras || []);
     if (!Array.isArray(o.drills)) o.drills = [];
     if (!Array.isArray(o.genreTips)) o.genreTips = [];
     if (!o.imgW || !o.imgH) { o.imgW = 760; o.imgH = 1000; }
 
-    // 页面顺序与 PDF 完全一致
+    // 页面顺序：封面 → 每页白板 → 各 Tab 独占起始页
     const coverHTML = secCover(o);
     const boards = boardPageList(o);
     const tabs = [tabOverview(o), tabOutline(o), tabDrill(o), tabPolish(o)];
@@ -839,7 +838,7 @@ function hexA(hex, a) {
   body{background:#e9ecf2;-webkit-font-smoothing:antialiased;
     font-family:"PingFang SC","Microsoft YaHei",sans-serif}
 
-  /* 每页：一个 A4 竖版页面，尺寸与 PDF 一致 */
+  /* 每页：一个 A4 竖版页面 */
   .pg{
     position:relative;width:794px;height:1123px;
     margin:0 auto 18px;background:#fff;
@@ -865,7 +864,7 @@ function hexA(hex, a) {
 <body id="doc">${body}
 <script>
 (function(){
-  /* 一、白板页真实测量摆卡（与 PDF 导出同一算法） */
+  /* 一、白板页真实测量摆卡 */
   var PAGE_W = 794, PAGE_H = 1123;
   function placeAll(){
     var roots = [].slice.call(document.querySelectorAll('.board3'));
@@ -1005,7 +1004,7 @@ function hexA(hex, a) {
 </script></body></html>`;
   }
 
-  /* 白板页列表（HTML 与 PDF 共用同一生成入口） */
+  /* 白板页列表 */
   function boardPageList(o) {
     const pages = (o.pages && o.pages.length > 1)
       ? o.pages.map(pg => ({ img: pg.img, w: pg.w, h: pg.h, page: pg.page,
@@ -1026,186 +1025,11 @@ function hexA(hex, a) {
     dl(blob, `智批作文-${safe(o.title)}.html`);
   }
 
-  /* ---------- 导出 PDF：逐块渲染 + 块级装箱（绝不切开任何块） ---------- */
-  /* ---------- 导出 PDF：真实渲染测量 → 分页装箱 → 逐页截图 ----------
-   * 核心保证：
-   *   1. 白板页一律原尺寸渲染，不缩放，作文图不变形
-   *   2. 批注卡按真实测量高度摆放，彼此不重叠
-   *   3. 每个 Tab 从新页开始，装不下才续页
-   *   4. 页面带背景板配色，与软件内白板观感一致
-   */
-  async function exportPDF(o) {
-    if (!window.jspdf || !window.html2canvas) throw new Error('PDF 组件未加载');
-    const { jsPDF } = window.jspdf;
-
-    const PAGE_W = PAGE.w;                       // 794
-    const PAGE_H = PAGE.h;                       // 1123
-    const PAD_X = 20, PAD_TOP = 20, PAD_BOT = 26;
-    const CONTENT_W = PAGE_W - PAD_X * 2;        // 754
-    const CONTENT_H = PAGE_H - PAD_TOP - PAD_BOT;
-
-    // 白板可用区：内容宽 + 预留页码行
-    o.boardW = CONTENT_W;
-    o.boardH = CONTENT_H - 16;
-
-    const frame = document.createElement('iframe');
-    frame.style.cssText = 'position:fixed;left:-99999px;top:0;width:1000px;height:1600px;border:0;z-index:-1';
-    document.body.appendChild(frame);
-    const fd = frame.contentWindow.document;
-    fd.open(); fd.write(buildShell(o)); fd.close();
-    await sleep(140);
-
-    const stage = fd.getElementById('stage');
-    stage.style.width = CONTENT_W + 'px';
-    const blocks = getBlocks(o);
-
-    /* ===== 阶段一：逐块真实测量 ===== */
-    const measured = [];
-    for (const b of blocks) {
-      stage.innerHTML = `<div class="blk">${b.html}</div>`;
-      const el = stage.firstElementChild;
-      await waitForImages(el);
-      await sleep(24);
-
-      if (b.board) {
-        // 白板：先按真实高度摆卡，再取整块高度（已含背景与页码说明）
-        const root = el.querySelector('.board3');
-        const geo = boardGeometry(b.pageData, { availW: o.boardW, availH: o.boardH });
-        b.geometry = geo;
-        const placed = placeCards(root, geo);
-        b.placed = placed;
-        // 白板页高度固定为整页，避免页面高低不一
-        b.h = PAGE_H;
-        b.fullH = PAGE_H;
-        b.cuts = [];
-        b.atomic = true;
-        measured.push(b);
-        continue;
-      }
-
-      const h = Math.ceil(el.getBoundingClientRect().height);
-      measured.push({ ...b, h, fullH: h, cuts: b.atomic ? [] : findCuts(el, h) });
-    }
-
-    /* ===== 阶段二：分页装箱 ===== */
-    // 规则：fullPage 块独占起始页；内容超高时在其内部安全断点续页
-    const pages = [];
-    const MIN_SLIVER = 120;
-
-    for (const b of measured) {
-      if (b.board || b.cover) {
-        // 封面、白板：各占独立一页，绝不与其他内容混排
-        pages.push([{ ...b, off: 0, h: b.h }]);
-        continue;
-      }
-      // Tab 块：独占起始页，超出才续页
-      let off = 0;
-      let first = true;
-      while (off < b.h) {
-        const room = first ? CONTENT_H : CONTENT_H;
-        const remain = b.h - off;
-        if (remain <= room) {
-          pages.push([{ ...b, off, h: remain }]);
-          break;
-        }
-        // 找页内最后一个安全断点
-        const limit = off + room;
-        const cand = (b.cuts || []).filter(c => c > off + MIN_SLIVER && c <= limit);
-        if (cand.length) {
-          const cut = cand[cand.length - 1];
-          pages.push([{ ...b, off, h: cut - off }]);
-          off = cut;
-        } else {
-          // 无断点：整块推到下一页，避免切断文字行
-          pages.push([{ ...b, off, h: Math.min(room, remain) }]);
-          off += Math.min(room, remain);
-        }
-        first = false;
-      }
-    }
-
-    /* ===== 阶段三：逐页渲染截图 ===== */
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
-    const A4W = 595.28, A4H = 841.89;
-
-    for (let p = 0; p < pages.length; p++) {
-      const items = pages[p];
-      const isBoard = items.some(b => b.board);
-      const isCover = items.some(b => b.cover);
-
-      stage.innerHTML = `<div class="pagewrap ${isBoard ? 'pg-board' : ''} ${isCover ? 'pg-cover' : ''}"
-        style="width:${PAGE_W}px;height:${PAGE_H}px;padding:${PAD_TOP}px ${PAD_X}px ${PAD_BOT}px;
-        box-sizing:border-box;background:#fff;position:relative;overflow:hidden">
-        <div class="pageinner" style="width:${CONTENT_W}px;position:absolute;left:${PAD_X}px;top:${PAD_TOP}px">
-          ${items.map(b => {
-            if (b.board) return `<div class="blk">${b.html}</div>`;
-            const whole = !b.off && b.h >= (b.fullH || b.h);
-            if (whole) return `<div class="blk">${b.html}</div>`;
-            return `<div class="blk" style="height:${b.h}px;overflow:hidden">
-              <div class="slice" style="margin-top:-${b.off || 0}px">${b.html}</div></div>`;
-          }).join('')}
-        </div>
-        <div class="pagefoot">第 ${p + 1} / ${pages.length} 页</div>
-      </div>`;
-
-      await waitForImages(stage);
-      await sleep(40);
-
-      // 白板页：渲染后再摆一次卡（此时宽度/字体已确定，测量才准）
-      if (isBoard) {
-        const item = items.find(b => b.board);
-        const root = stage.querySelector('.board3');
-        if (root && item) {
-          const shot = root.querySelector('.shot');
-          const geo = boardGeometry(item.pageData, {
-            availW: o.boardW,
-            availH: Math.round(shot ? shot.getBoundingClientRect().height : o.boardH)
-          });
-          const placed = placeCards(root, geo);
-          const svg = connectorsSVG(root, placed, geo);
-          root.insertAdjacentHTML('afterbegin', svg);
-          await sleep(40);
-        }
-      }
-
-      const node = stage.querySelector('.pagewrap');
-      if (window.__ZPDBG) window.__ZPDBG.push('page'+(p+1)+' node='+!!node+' w='+(node?node.offsetWidth:0));
-      const canvas = await window.html2canvas(node, {
-        scale: 2.2, useCORS: true, backgroundColor: '#ffffff',
-        width: PAGE_W, height: PAGE_H, windowWidth: PAGE_W, windowHeight: PAGE_H,
-        scrollX: 0, scrollY: 0, logging: false
-      });
-
-      if (window.__ZPDBG) window.__ZPDBG.push('canvas ok '+(canvas.width||0)+'x'+(canvas.height||0));
-      if (p > 0) pdf.addPage();
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.96), 'JPEG', 0, 0, A4W, A4H, undefined, 'FAST');
-    }
-
-    pdf.save(`智批作文-${safe(o.title)}.pdf`);
-    frame.remove();
-  }
-
-  /* 渲染外壳：只含基础样式，无分页容器 */
-  function buildShell(o) {
-    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><style>
-      body{margin:0;background:#fff}
-      #stage{width:auto}
-      .slice > *:first-child{margin-top:0 !important}
-      ${CSS_BLOCKS}
-    </style></head><body><div id="stage"></div></body></html>`;
-  }
-
   /* ---------- 工具 ---------- */
   const esc = s => String(s == null ? '' : s)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const safe = s => String(s || '作文').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
   const sleep = ms => new Promise(r => setTimeout(r, ms));
-  function waitForImages(root) {
-    const imgs = Array.from(root.querySelectorAll('img'));
-    return Promise.all(imgs.map(im => im.complete ? Promise.resolve() : new Promise(res => {
-      im.onload = res; im.onerror = res; setTimeout(res, 3000);
-    })));
-  }
   function dl(blob, name) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1214,5 +1038,5 @@ function hexA(hex, a) {
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
   }
 
-  global.ZPEXPORT = { collect, buildDocument, exportHTML, exportPDF, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview } };
+  global.ZPEXPORT = { collect, buildDocument, exportHTML, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview } };
 })(window);

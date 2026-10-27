@@ -2560,22 +2560,19 @@
       if (!d || !d.result) { toast('请先完成批改再导出'); return; }
       if (!window.ZPEXPORT) { toast('导出组件未加载'); return; }
       if (state.exporting) { toast('正在生成，请稍候'); return; }
-      const other = kind === 'pdf' ? $('#btnExportHTML') : $('#btnExportPDF');
-      if (other) other.disabled = true;
-      const btn = kind === 'pdf' ? $('#btnExportPDF') : $('#btnExportHTML');
+      const btn = $('#btnExportHTML');
       const label = btn ? btn.querySelector('span') : null;
       const oldText = label ? label.textContent : '';
       const wasBusy = btn ? btn.classList.contains('busy') : false;
       state.exporting = true;
       // 只替换文字并加旋转图标，保持按钮尺寸稳定，避免文字被挤成竖排
       if (btn) { btn.disabled = true; btn.classList.add('busy'); }
-      if (label) label.textContent = kind === 'pdf' ? '生成中' : '生成中';
+      if (label) label.textContent = '生成中';
       try {
         const o = buildExportData(d);
-        if (kind === 'pdf') await window.ZPEXPORT.exportPDF(o);
-        else window.ZPEXPORT.exportHTML(o);
+        window.ZPEXPORT.exportHTML(o);
         if (label) label.textContent = '已完成';
-        toast(kind === 'pdf' ? 'PDF 已开始下载' : 'HTML 已开始下载');
+        toast('HTML 已开始下载');
         await wait(700);
       } catch (e) {
         console.error(e);
@@ -2584,11 +2581,8 @@
         state.exporting = false;
         if (label) label.textContent = oldText;
         if (btn) { btn.disabled = false; btn.classList.toggle('busy', wasBusy); }
-        if (other) other.disabled = false;
       }
     };
-    $('#toolPrint').onclick = () => doExport('pdf');
-    const _pb = $('#btnExportPDF'); if (_pb) _pb.onclick = () => doExport('pdf');
     const _hb = $('#btnExportHTML'); if (_hb) _hb.onclick = () => doExport('html');
 
     // 快捷键
