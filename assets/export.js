@@ -103,7 +103,8 @@
   /* 三列：左卡列 | 作文纸 | 右卡列，居中且左右留白对称 */
   .board3{
     position:relative;display:flex;align-items:flex-start;justify-content:center;
-    width:100%;margin:0;gap:var(--gap,18px);box-sizing:border-box;
+    width:100%;max-width:100%;margin:0 auto;gap:var(--gap,22px);box-sizing:border-box;
+    margin-left:auto;margin-right:auto;
   }
   .board3 .col-side{
     position:relative;flex:0 0 auto;align-self:stretch;min-width:0;
@@ -808,25 +809,19 @@ function hexA(hex, a) {
     if (!Array.isArray(o.genreTips)) o.genreTips = [];
     if (!o.imgW || !o.imgH) { o.imgW = 760; o.imgH = 1000; }
 
-    // 页面顺序：封面 → 每页白板 → 各 Tab 独占起始页
-    const coverHTML = secCover(o);
-    const boards = boardPageList(o);
-    const tabs = [tabOverview(o), tabOutline(o), tabDrill(o), tabPolish(o)];
+    // ===== 区块顺序（作文图与批注在最前，其后依次是标题、四维、总评与各 Tab）=====
+    const boards = boardPageList(o);            // 每个作文页一块白板，纵向依次排列
+    const blocks = [
+      { id: 'board',  html: boards.join(''),          cls: 'sec-board' },
+      { id: 'head',   html: secCover(o),              cls: 'sec-cover' },
+      { id: 'ov',     html: tabOverview(o),           cls: 'sec-tab' },
+      { id: 'out',    html: tabOutline(o),            cls: 'sec-tab' },
+      { id: 'drill',  html: tabDrill(o),              cls: 'sec-tab' },
+      { id: 'polish', html: tabPolish(o),             cls: 'sec-tab' }
+    ].filter(b => b.html && b.html.trim());
 
-    const pageCls = 'pg';
-    const page = (inner, cls, pageNo) => `<section class="${pageCls} ${cls || ''}">
-      <div class="pg-inner">${inner}</div>
-      ${pageNo ? `<div class="pagefoot">第 ${pageNo} 页</div>` : ''}
-    </section>`;
-
-    // 先收集所有页，再补页码
-    const pageList = [];
-    pageList.push({ html: coverHTML, cls: 'pg-cover' });
-    boards.forEach(b => pageList.push({ html: b, cls: 'pg-board' }));
-    tabs.forEach(t => pageList.push({ html: t, cls: 'pg-tab' }));
-
-    const body = pageList
-      .map((p, i) => page(p.html, p.cls, i + 1))
+    const body = blocks
+      .map(b => `<section class="blk ${b.cls}">${b.html}</section>`)
       .join('');
 
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
@@ -835,37 +830,47 @@ function hexA(hex, a) {
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
-  body{background:#e9ecf2;-webkit-font-smoothing:antialiased;
+  body{background:#f4f6fa;-webkit-font-smoothing:antialiased;
     font-family:"PingFang SC","Microsoft YaHei",sans-serif}
 
-  /* 每页：一个 A4 竖版页面 */
-  .pg{
-    position:relative;width:794px;height:1123px;
-    margin:0 auto 18px;background:#fff;
-    padding:20px;overflow:hidden;
-    box-shadow:0 2px 12px rgba(20,23,45,.10);
-    page-break-after:always;break-after:page;
+  /* ===== 单一长页：不分页，内容自上而下连续排布 ===== */
+  .doc{
+    /* 宽度随最宽区块（白板三栏）自适应，最小 794，保证任意内容都居中不溢左 */
+    width:max-content;min-width:794px;max-width:100%;
+    margin:0 auto;background:#fff;position:relative;
   }
-  .pg:last-child{page-break-after:auto;break-after:auto}
-  .pg-inner{position:relative;width:754px;height:1083px;margin:0 auto}
+  /* 正文类区块限制在 794 的阅读宽度内并居中 */
+  .blk{padding:22px 26px 0;max-width:794px;margin:0 auto}
+  .blk.sec-board{padding:20px 26px 8px}
+  .blk:last-child{padding-bottom:34px}
+  /* 白板区作为开篇，宽度跟随三栏内容，不额外限宽 */
+  .blk.sec-board{max-width:none}
+  /* 标题区在其后，与白板之间留出呼吸空间 */
+  .blk.sec-cover{padding-top:10px;border-top:1px solid #eef0f6}
+  .blk.sec-tab{padding-top:26px}
 
-  @page{size:A4 portrait;margin:0}
+  /* 白板：多页作文纵向排列时，页与页之间留出间隔 */
+  /* 多页作文：每页白板独立成块，页间留出明显间距 */
+  .blk.sec-board .board3{justify-content:center;margin:0 auto}
+  .blk.sec-board .pg-cap{margin:12px 0 34px}
+  .blk.sec-board .pg-cap:last-child{margin-bottom:6px}
+
+  @page{size:A4 portrait;margin:10mm}
   @media print{
     body{background:#fff}
-    .pg{margin:0;box-shadow:none;page-break-after:always}
-  }
-  /* 窄屏：整体等比缩放，保持三列结构不变形 */
-  @media screen and (max-width:860px){
-    body{background:#e9ecf2}
-    .pg{transform-origin:top center}
+    .doc{width:auto}
+    .blk{page-break-inside:auto}
+    .blk.sec-cover{page-break-before:always}
+    .blk.sec-tab{page-break-before:always}
+    .board3{page-break-inside:avoid}
   }
   ${EXPORT_CSS}
 </style></head>
-<body id="doc">${body}
+<body>
+<div class="doc" id="doc">${body}</div>
 <script>
 (function(){
-  /* 一、白板页真实测量摆卡 */
-  var PAGE_W = 794, PAGE_H = 1123;
+  /* 一、白板真实测量摆卡 */
   function placeAll(){
     var roots = [].slice.call(document.querySelectorAll('.board3'));
     roots.forEach(function(root){
@@ -962,41 +967,22 @@ function hexA(hex, a) {
     root.insertBefore(svg, root.firstChild);
   }
 
-  /* 三、窄屏整体缩放 */
-  function fitScreen(){
-    var pgs = [].slice.call(document.querySelectorAll('.pg'));
-    var vw = document.documentElement.clientWidth;
-    var s = vw < 830 ? Math.max(0.42, (vw - 16) / PAGE_W) : 1;
-    pgs.forEach(function(p){
-      if (s === 1){ p.style.transform = ''; p.style.marginBottom = ''; }
-      else {
-        p.style.transform = 'scale(' + s + ')';
-        p.style.transformOrigin = 'top center';
-      }
-    });
-    // 缩放后调整占位高度，避免页面间出现大空隙
-    pgs.forEach(function(p){
-      if (s === 1) return;
-      p.style.marginBottom = (-(PAGE_H * (1 - s)) + 18) + 'px';
-    });
-  }
-
   function boot(){
     placeAll();
-    // 图片加载完再量一次，保证尺寸准确
     var imgs = [].slice.call(document.images);
     var left = imgs.filter(function(im){ return !im.complete; }).length;
     if (left){
       var done = 0;
+      var again = function(){ if (++done >= left){ placeAll(); } };
       imgs.forEach(function(im){
         if (im.complete) return;
-        im.addEventListener('load', function(){ if (++done >= left){ placeAll(); } });
-        im.addEventListener('error', function(){ if (++done >= left){ placeAll(); } });
+        im.addEventListener('load', again);
+        im.addEventListener('error', again);
       });
     }
     setTimeout(placeAll, 300);
-    fitScreen();
-    window.addEventListener('resize', fitScreen);
+    setTimeout(placeAll, 900);
+    window.addEventListener('resize', placeAll);
   }
   if (document.readyState === 'complete') boot();
   else window.addEventListener('load', boot);
@@ -1004,15 +990,17 @@ function hexA(hex, a) {
 </script></body></html>`;
   }
 
+
   /* 白板页列表 */
   function boardPageList(o) {
     const pages = (o.pages && o.pages.length > 1)
       ? o.pages.map(pg => ({ img: pg.img, w: pg.w, h: pg.h, page: pg.page,
           annos: o.annos.filter(a => (a.page || 1) === pg.page) }))
       : [{ img: o.img, w: o.imgW, h: o.imgH, page: 1, annos: o.annos }];
-    // 页面内容宽 = 794 - 左右 padding(20*2) - 滚动条余量，纵向扣掉上下 padding 与页码行
+    // 流式布局：宽度扣掉左右内边距，可用高度按一屏常见高度定基准，
+    // 纸张按原图比例撑开，不做固定页高限制
     const availW = o.availW || 754;
-    const availH = (o.availH || 1123) - 40 - 18;
+    const availH = o.availH || 960;
     return pages.map(pg => boardPageHTML(pg, pages.length, { availW, availH }));
   }
 
