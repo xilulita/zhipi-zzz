@@ -1645,93 +1645,250 @@
   }
 
   /* ---------- 生成四条批注（每条对应段落） ---------- */
+  /* ================= 批注生成：按每段真实文本特征检测 =================
+   * 原则：只对文中确实存在的问题出批注，一条一批注、各条指向不同片段。
+   * 同一段可以同时出多条（例如既有病句又有润色点），不做"必须覆盖几段"的硬凑。
+   */
   function makeAnnos(essay, g, genre, opts) {
-    const P = essay.paras.filter(x => x && x.length > 4);
+    const P = essay.paras.filter(x => x && String(x).trim().length > 4);
     if (!P.length) return [];
-    const cut = (t, n) => String(t).replace(/^\s+/, '').slice(0, n);
-    const build = [];
-    const N = P.length;
+    const raw = String;
+    const cnt = t => String(t || '').replace(/\s+/g, '').length;
+    const cut = (t, n) => {
+      const s = String(t || '').replace(/\s+/g, '');
+      return s.length > n ? s.slice(0, n) + '…' : s;
+    };
+    const build = [];   // { type, para, html, quote }
 
-    // ① 好句：取最长的一段（通常细节最足）
-    let best = 0;
-    P.forEach((t, i) => { if (t.length > P[best].length) best = i; });
-    build.push({ type: 'good', para: best,
-      html: `“<b>${cut(P[best], 18)}…</b>”这句有真实细节，画面清楚，是全文最出彩的一处，<b>建议保留这种写法</b>。` });
-
-    // ② 润色：至少 3 条（针对不同段落）
-    const polishTargets = [...new Set([1, Math.floor(N / 2), N - 2])].filter(i => i >= 0 && i < N && i !== best).slice(0, 3);
-    polishTargets.forEach((pi, k) => {
-      const t = P[pi];
-      const tips = [
-        `“<b>${cut(t, 20)}…</b>”可补一个动作细节，例如把心理描写换成手或眼睛的动作，会更具体。`,
-        `此处句子偏平，建议加一个比喻：<b>“像被反复折过的纸”</b>这类来自生活的喻体，比形容词更有力。`,
-        `节奏可再拉开：把长句在转折处断开，短句单独成句，读起来更有停顿感。`
-      ];
-      build.push({ type: 'polish', para: pi, html: tips[k % tips.length] });
-    });
-
-    // ③ 错别字/病句：扫描全篇常见问题
-    const errRules = [
-      { re: /(很|非常|特别)(感动|难过|开心|高兴|紧张)/, tip: '“<b>$1$2</b>”是抽象概括，建议换成身体反应，如“鼻子一酸/喉咙发紧”。' },
-      { re: /慢慢的|静静地|轻轻的/, tip: '“<b>$&</b>”误用：修饰动词应用“地”，改为“慢慢地/静静地/轻轻地”。' },
-      { re: /的的|了了|地地/, tip: '“<b>$&</b>”重复用字，属笔误，删去一个即可。' },
-      { re: /[，,]{2,}|[。]{2,}/, tip: '标点连用（“<b>$&</b>”），应改为单个标点。' },
-      { re: /像(.{2,10})一样像/, tip: '比喻重复（“<b>$&</b>”），保留一处即可。' },
-      { re: /并且而且|因为所以/, tip: '“<b>$&</b>”关联词冗余，保留一个更简洁。' }
+    /* ---------- 一、病句 / 错别字：逐段扫描实际文本 ---------- */
+    const ERR_RULES = [
+      { re: /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/,
+        make: (m, t) => `“<b>${m[0]}</b>”是在直接说结果，读者接收不到画面。建议换成身体反应，例如“${({ 感动: '鼻子一酸，眼眶热了一下', 难过: '喉咙像塞了棉花', 开心: '嘴角压不住地往上翘', 紧张: '手心全是汗', 害怕: '后背沁出一层薄汗' })[m[2]] || '手心发凉'}”。` },
+      { re: /(慢慢的|静静的|轻轻的|悄悄的)(?![地])/,
+        make: (m) => `“<b>${m[0]}</b>”误用：修饰动作要用“地”，应写作“${m[1]}地”。` },
+      { re: /([的地得])\s*(?=[走跑看说想坐站拿放])/,
+        make: (m, t) => `此处“<b>${m[1]}</b>”后面接的是动作，应该用“地”，改为“${m[1].replace(/[的地得]/, '地')}”。` },
+      // 重复用字：只认真正笔误（如“的的”“了了”），排除“浅浅/慢慢/妈妈”这类正常叠词
+      { re: /(的的|了了|地地|得得|是是|在在|我我|他他|她她)/,
+        make: (m) => `“<b>${m[0]}</b>”重复用字，属于笔误，删去一个即可。` },
+      { re: /[，,]{2,}|[。！？]{2,}/,
+        make: (m) => `标点连用“<b>${m[0]}</b>”，应改为单个标点。` },
+      { re: /并且而且|因为所以|虽然但是(?=[^，。])/,
+        make: (m) => `“<b>${m[0]}</b>”关联词冗余，保留一个更简洁。` },
+      { re: /像(.{2,10})一样像/,
+        make: (m) => `比喻重复“<b>${m[0]}</b>”，保留一处即可。` },
+      { re: /的的|了了|地地/, make: (m) => `“<b>${m[0]}</b>”重复用字，删去一个。` }
     ];
-    let errCount = 0;
-    errRules.forEach(r => {
-      if (errCount >= 3) return;
-      P.forEach((t, pi) => {
-        if (errCount >= 3) return;
-        const m = t.match(r.re);
-        if (m) { build.push({ type: 'err', para: pi, html: r.tip.replace(/\$&/g, m[0]).replace(/\$1/g, m[1] || '').replace(/\$2/g, m[2] || '') }); errCount++; }
+    const hitParas = new Set();
+    P.forEach((t, pi) => {
+      ERR_RULES.forEach(r => {
+        const m = String(t).match(r.re);
+        if (!m) return;
+        // 同一段同类规则只记一次
+        const key = pi + ':' + r.re.source;
+        if (hitParas.has(key)) return;
+        hitParas.add(key);
+        build.push({ type: 'err', para: pi, quote: m[0], html: r.make(m, t) });
       });
     });
-    if (errCount === 0) {
-      let li = 0;
-      P.forEach((t, i) => { if (/[^。！？]{42,}/.test(t) && i !== best) li = i; });
-      build.push({ type: 'err', para: li,
-        html: `“<b>${cut(P[li], 24)}…</b>”一句超过 40 字未断句，建议在主语后加逗号，读起来不喘。` });
-      build.push({ type: 'err', para: Math.min(2, N - 1),
-        html: `全篇未发现明显错别字，但要注意<b>“的/地/得”</b>三字用法：修饰名词用“的”，修饰动词用“地”，补充说明用“得”。` });
+
+    /* ---------- 二、长句未断：按实际字数判定 ---------- */
+    P.forEach((t, pi) => {
+      if (!/[^。！？；]{42,}/.test(t)) return;
+      const seg = String(t).match(/[^。！？；]{42,}/)[0];
+      // 找到可断处：转折/因果连词，或句中逗号后
+      const turn = seg.match(/(.{12,}?)(可|但是|可是|于是|却|因为|所以|只是|而且)/);
+      const advice = turn
+        ? `建议在“<b>${turn[2]}</b>”前断开成两句：“${cut(turn[1], 16)}。”另起一句。`
+        : `建议在中途的逗号处断开，让句子有停顿。`;
+      build.push({ type: 'err', para: pi, quote: cut(seg, 24),
+        html: `这一句有 <b>${cnt(seg)}</b> 字未断开，一口气读不完。${advice}` });
+    });
+
+    /* ---------- 二·补 用词与句式层面的可改进点 ----------
+     * 这类不是"写错"，而是"写得可以更好"：泛动词、抽象形容词、全是短句、连续同一主语开头。
+     * 归入 polish，每条都指名具体的那一句，不做无对象点评。 */
+    const GENERIC_VERB = /(|^)(做|弄|搞|弄了|进行|处理|完成)/;
+    const VAGUE_ADJ = /(很美|很好看|非常好看|特别好|很棒|很漂亮|舒服|美好|不错)/;
+    const subjectRepeat = [];
+
+    P.forEach((t, pi) => {
+      const txt = String(t);
+
+      // a) 泛动词：做/弄/搞 代替了具体动作
+      const gv = txt.match(/(做|弄|搞)(了|着|好|完)?[^，。]{0,8}/);
+      if (gv && build.filter(b => b.type === 'polish').length < 8) {
+        build.push({ type: 'polish', para: pi, quote: gv[0],
+          html: `“<b>${gv[0]}</b>”里的动词太笼统，读者看不到动作。换成具体的手部动作，例如把“做了准备”改成“把袖子往上撸了两下”。` });
+      }
+
+      // b) 抽象形容词：很美/很好看/特别好
+      const va = txt.match(VAGUE_ADJ);
+      if (va && build.filter(b => b.type === 'polish').length < 8) {
+        build.push({ type: 'polish', para: pi, quote: va[0],
+          html: `“<b>${va[0]}</b>”是评价，不是描写。读者不知道美在哪里。改成具体的颜色、形状或一个细节：“叶子边缘卷起来一点，背面的灰白翻了出来。”` });
+      }
+
+      // c) 连续短句：一句里超过 3 个逗号且每截都很短
+      const segs = txt.split(/[，；]/).map(x => x.trim()).filter(Boolean);
+      if (segs.length >= 4 && segs.every(x => cnt(x) <= 6) && build.filter(b => b.type === 'polish').length < 8) {
+        build.push({ type: 'polish', para: pi, quote: cut(txt, 18),
+          html: `这一句连用了 ${segs.length} 个很短的短句，节奏碎。可以合并成一句有起伏的长句，再在最重的地方用一个短句收住。` });
+      }
+
+      // d) 连续以"我"开头（记录，后面统一出一条）
+      if (/^我[^，。]{0,6}/.test(txt)) subjectRepeat.push(pi);
+    });
+
+    // d) 主语重复：连续段落都以"我"开头，只出一条
+    if (subjectRepeat.length >= 3 && build.filter(b => b.type === 'polish').length < 9) {
+      const si = subjectRepeat[1];
+      build.push({ type: 'polish', para: si, quote: cut(P[si], 12),
+        html: `连续 ${subjectRepeat.length} 段都以“我”开头，句式重复。可以把其中几句换成“手里的笔”“窗外的风”作主语，视角一换就活了。` });
     }
 
-    // ④ 删改：1 条
-    build.push({ type: 'dele', para: Math.max(0, N - 1),
-      html: `结尾“<b>${cut(P[N - 1], 16)}…</b>”与上文意象有重复，建议<u>删去一句</u>，把感受藏在动作里更克制。` });
+    /* ---------- 三、润色点：按文本特征给出针对性改写 ---------- */
+    // 3.1 有"像/仿佛"的比喻句 → 检查喻体是否具体
+    //     喻体笼统的才批"太笼统"；喻体已经具体的，改为给一个不同的推法（每条措辞不同）
+    const simileReplies = [
+      (m) => `“<b>${m[0]}</b>”已经是个好比喻。可以在喻体后面再补一个<b>可触摸的细节</b>——它的温度、重量或磨损痕迹，画面就从“像”变成“是”。`,
+      (m) => `“<b>${m[0]}</b>”的比喻方向偏静态。试着给它加一个<b>动作</b>，让喻体也动起来，例如让它被风吹一下、被人碰一下。`,
+      (m) => `“<b>${m[0]}</b>”喻体选得贴生活。可以把这个比喻<b>往后延一句</b>，写它带来的感受，让读者也尝到那种滋味。`
+    ];
+    let simileIdx = 0;
+    P.forEach((t, pi) => {
+      const m = String(t).match(/(像|仿佛)([^，。；！？]{1,8})/);
+      if (!m) return;
+      const isVague = /^(很|好|某种|什么|一个)/.test(m[2]) || cnt(m[2]) <= 2;
+      const html = isVague
+        ? `“<b>${m[0]}</b>”的喻体太笼统，读者想不出画面。换成生活里见过的东西，最好带动作或磨损感，例如“像一张被反复折过的纸，折痕处已经发白”。`
+        : simileReplies[simileIdx++ % simileReplies.length](m);
+      build.push({ type: 'polish', para: pi, quote: m[0], html });
+    });
 
-    // ===== 定位：按批注对应段落的真实行位置计算，不再均分 =====
-    // 演示稿的正文是与 PAPER 网格严格对齐的排版，段落 i 的文字基线在 FIRST_BASE + i*LINE_GAP，
-    // 因此批注条的纵坐标必须由段落号换算，才能精确压在该段文字上。
+    // 3.2 通篇"看见"型描写 → 提示补声音或触感
+    P.forEach((t, pi) => {
+      const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软|硬|湿)/.test(t);
+      const isScene = /(看|望|见|站|坐|走|厨房|窗|手|脸|背)/.test(t) && cnt(t) >= 12;
+      if (hasSense || !isScene) return;
+      // 只在真正"纯视觉"的段落提示，且全文最多 3 条
+      if (build.filter(b => b.type === 'polish').length >= 3) return;
+      build.push({ type: 'polish', para: pi, quote: cut(t, 18),
+        html: `这一段只有画面，没有声音和触感。可在动作后面接半句：“${cut(t, 10)}……；水龙头没关紧，滴答、滴答，一下一下敲在瓷盆上。”` });
+    });
+
+    // 3.3 动作一笔带过 → 提示拆成三拍
+    P.forEach((t, pi) => {
+      const m = String(t).match(/(我)?(走过去|跑过去|坐下去|拿起|放下|转过头|低下头)/);
+      if (!m) return;
+      if (build.filter(b => b.type === 'polish').length >= 4) return;
+      build.push({ type: 'polish', para: pi, quote: m[0],
+        html: `“<b>${m[0]}</b>”是一个整体动作，一笔带过。拆成三拍会更有过程感：“手撑在桌沿，身子往前倾了一下，又慢慢收回去。”` });
+    });
+
+    // 3.4 缺少人物原话 → 提示加一句对话
+    const hasDialog = /[“"][^”"]{2,}[”"]/.test(P.join(''));
+    if (!hasDialog) {
+      const cand = P.findIndex((t, i) => /(说|问|喊|答|告诉)/.test(t));
+      const idx = cand >= 0 ? cand : Math.min(1, P.length - 1);
+      build.push({ type: 'polish', para: idx, quote: cut(P[idx], 14),
+        html: `全篇没有人物原话，情绪都靠转述。可以在这一处让人物说<b>一句</b>原话（带引号），比如“她说，你先写作业，这点事妈自己来。”，现场感立刻就出来了。` });
+    }
+
+    /* ---------- 四、好句：挑真实有画面感的句子 ---------- */
+    const scoreOfLine = (t) => {
+      let sc = 0;
+      if (/(像|仿佛|好似|如同)/.test(t)) sc += 3;                 // 有比喻
+      if (/(听见|闻到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(t)) sc += 2;  // 有感官
+      if (/(捡|搓|擦|攥|拢|抹|掀|垂|缩|倾|撑)/.test(t)) sc += 2;   // 有具体动词
+      if (cnt(t) >= 10 && cnt(t) <= 30) sc += 1;                    // 长度适中
+      return sc;
+    };
+    const ranked = P.map((t, i) => ({ t, i, s: scoreOfLine(t) }))
+      .filter(x => x.s >= 3).sort((a, b) => b.s - a.s).slice(0, 2);
+    ranked.forEach(x => {
+      const why = /(像|仿佛|好似)/.test(x.t) ? '用了一个来自生活的比喻，画面立得住'
+        : /(听见|闻到|凉|暖|响|香)/.test(x.t) ? '调动了感官，读者能跟着“在场”'
+        : '动词选得准，动作有过程感';
+      build.push({ type: 'good', para: x.i, quote: cut(x.t, 20),
+        html: `“<b>${cut(x.t, 20)}</b>”${why}，<b>这种写法请保留</b>。` });
+    });
+    // 保底：至少一条好句
+    if (!build.some(b => b.type === 'good')) {
+      let bi = 0;
+      P.forEach((t, i) => { if (cnt(t) > cnt(P[bi])) bi = i; });
+      build.push({ type: 'good', para: bi, quote: cut(P[bi], 18),
+        html: `“<b>${cut(P[bi], 18)}</b>”是全文细节最足的一句，把感受落在了具体的事上，比直接抒情更有说服力。` });
+    }
+
+    /* ---------- 五、删改：找真正重复或可删的句子 ---------- */
+    // 5.1 与开头/前文高度重合的结尾总结句
+    const first = P[0] || '';
+    const last = P[P.length - 1] || '';
+    const overlap = (a, b) => {
+      const sa = String(a).replace(/[，。！？；]/g, '').slice(0, 6);
+      return sa.length >= 3 && String(b).includes(sa);
+    };
+    if (P.length > 1 && overlap(first, last)) {
+      build.push({ type: 'dele', para: P.length - 1, quote: cut(last, 16),
+        html: `结尾“<b>${cut(last, 16)}</b>”与开头意象重合，读起来是重复的。建议<u>删去这一句</u>，或压成半句，把余味留白。` });
+    }
+    // 5.2 含总结式/议论式套话的句子
+    P.forEach((t, pi) => {
+      if (build.filter(b => b.type === 'dele').length >= 2) return;
+      if (!/(原来|终于明白|我懂得了|这就是|让我明白了|使我懂得)/.test(t)) return;
+      build.push({ type: 'dele', para: pi, quote: cut(t, 16),
+        html: `“<b>${cut(t, 16)}</b>”是总结式收尾，把道理直接说了出来。<u>建议删去</u>，把道理藏在前面的动作里，读者自己品出来的更有味道。` });
+    });
+    // 5.3 全篇过短段落过多 → 提示合并（只出一条）
+    const shortP = P.filter(t => cnt(t) < 18);
+    if (shortP.length >= 3 && build.filter(b => b.type === 'dele').length < 2) {
+      const si = P.findIndex(t => cnt(t) < 18);
+      build.push({ type: 'dele', para: si >= 0 ? si : 0, quote: cut(P[si >= 0 ? si : 0], 14),
+        html: `全文有 <b>${shortP.length}</b> 段不足 18 字，段落被切得太碎，读起来一跳一跳的。建议把相邻的两段<u>合并</u>，每段只承担一个意思。` });
+    }
+
+    /* ---------- 六、排序、去重、定位 ---------- */
+    // 去重：同一段之内，同一处引文只保留一条（类型不同也不重复点评同一句）
+    const seenQuote = new Set();
+    const seenKey = new Set();
+    const uniq = build.filter(b => {
+      const q = String(b.quote || '').replace(/……|…/g, '').slice(0, 8);
+      const qk = b.para + '|' + q;
+      const kk = b.para + '|' + b.type + '|' + q;
+      if (q.length >= 4 && seenQuote.has(qk)) return false;
+      if (seenKey.has(kk)) return false;
+      if (q.length >= 4) seenQuote.add(qk);
+      seenKey.add(kk);
+      return true;
+    });
+
+    // 排序：先按段落（从上到下），同段落按类型优先级
+    const order = { err: 0, polish: 1, good: 2, dele: 3 };
+    uniq.sort((a, b) => (a.para - b.para) || (order[a.type] - order[b.type]));
+
+    // 段落号 → 该行文字的纵向区间
     const gridTotal = () => {
-      if (typeof P !== 'undefined' && P && P.FIRST_BASE != null) return P;
-      if (typeof PAPER !== 'undefined' && PAPER) return PAPER;
+      if (typeof PAPER !== 'undefined' && PAPER && PAPER.FIRST_BASE != null) return PAPER;
       return { PAD_X: 86, LINE_W: 600, FIRST_BASE: 186, LINE_GAP: 40, W: 760 };
     };
     const G = gridTotal();
-    const rowsAll = (opts && opts.isDemo && typeof DEMO_LINES !== 'undefined') ? DEMO_LINES.length : N;
+    const rowsAll = (opts && opts.isDemo && typeof DEMO_LINES !== 'undefined') ? DEMO_LINES.length : P.length;
     const pageH = (typeof demoPageH === 'function') ? demoPageH(rowsAll) : 1000;
-
-    // 段落号 → 该行文字的纵向区间（相对纸张高度）
     const rowToY = (row) => {
       const base = G.FIRST_BASE + Math.max(0, row) * G.LINE_GAP;
-      const topPx = base - 14;            // 条顶略高于文字顶
-      const hPx = 44;                     // 条高覆盖一整行
       return {
-        y: Math.max(0, Math.min(0.97, topPx / pageH)),
-        h: Math.max(0.018, Math.min(0.06, hPx / pageH))
+        y: Math.max(0, Math.min(0.97, (base - 14) / pageH)),
+        h: Math.max(0.018, Math.min(0.06, 44 / pageH))
       };
     };
 
-    const total = build.length;
-    // 先按段落先后排序，编号与阅读顺序一致（从上到下 1、2、3…）
-    build.sort((a, b) => (a.para - b.para) || 0);
-    return build.map((a, i) => {
+    return uniq.map((a, i) => {
       const side = i % 2 === 0 ? 'left' : 'right';
       const pos = rowToY(a.para);
       return {
         id: 'a' + i, no: i + 1, type: a.type, side, html: a.html, para: a.para,
+        quote: a.quote || '',
         stat: { good: '好句', err: '病句', polish: '润色', dele: '删改' }[a.type],
         x: G.PAD_X / G.W,
         y: pos.y,
