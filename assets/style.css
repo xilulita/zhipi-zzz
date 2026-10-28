@@ -926,12 +926,21 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 
 /* 标签删除按钮 */
 .file-tabs .ftab{position:relative;padding-right:20px!important}
-.file-tabs .tab-x{position:absolute;top:50%;right:4px;transform:translateY(-50%);
-  width:14px;height:14px;display:grid;place-items:center;border-radius:50%;
-  font-size:12px;line-height:1;color:#b6bbc8;opacity:0;transition:.15s;cursor:pointer}
-.file-tabs .ftab:hover .tab-x{opacity:1}
+/* 删除按钮：常显（不再依赖 hover），点击区域 20×20，避免点不到 */
+.file-tabs .tab-x{
+  position:absolute;top:50%;right:2px;transform:translateY(-50%);
+  width:20px;height:20px;display:grid;place-items:center;border-radius:6px;
+  font-size:13px;line-height:1;color:#a8aebd;cursor:pointer;z-index:3;
+  transition:background .15s,color .15s;
+  /* 扩大点击热区，但不撑大视觉尺寸 */
+  -webkit-tap-highlight-color:transparent;
+}
+.file-tabs .tab-x::after{content:"";position:absolute;inset:-3px;border-radius:8px}
 .file-tabs .tab-x:hover{background:#fdeeee;color:#e2554f}
-.file-tabs .ftab.on .tab-x{opacity:.7}
+.file-tabs .tab-x.lock{color:#d5d9e2;cursor:not-allowed}
+.file-tabs .tab-x.lock:hover{background:transparent;color:#d5d9e2}
+/* 标签右侧留出删除按钮的位置，防止名字压住按钮 */
+.file-tabs .ftab{padding-right:24px!important}
 
 /* 右栏：批改内容预览清单（借鉴参考结构，配色沿用现有） */
 .report-guide{margin:14px 16px 0;border-radius:12px;background:#fff;border:1px solid var(--line);
@@ -952,9 +961,8 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
   color:#fff!important;box-shadow:0 2px 4px rgba(79,70,229,.18),0 8px 22px -6px rgba(79,70,229,.55),
   inset 0 1px 0 rgba(255,255,255,.22)!important;cursor:pointer}
 .btn-primary[disabled] svg{opacity:1}
-/* 最后一份标签的锁定标记 */
-.file-tabs .tab-x.lock{cursor:not-allowed;font-size:9px;opacity:.45}
-.file-tabs .tab-x.lock:hover{background:transparent;color:#b6bbc8}
+/* 最后一份标签的锁定标记（尺寸继承上面的常显规则，仅调透明度） */
+.file-tabs .tab-x.lock{opacity:.5}
 
 /* 中间白板：图片用背景图渲染，彻底禁止拖拽 / 选中 / 另存 */
 .paper-bg{width:100%;background-repeat:no-repeat;background-position:center top;

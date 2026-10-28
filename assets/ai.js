@@ -39,6 +39,10 @@ ${dims}
 
 要求：
 1. 必须先准确识别图片中的作文原文（含标题），不要编造内容。
+   **识别时的注意点**：
+   - 手写体请按笔画逐个辨认，遇到连笔、涂改、字迹潦草处，结合上下文判断最可能的字，并在该句里按判断结果如实写出，不要跳过整句，也不要用"（字迹不清）"占位；
+   - 中文标点（，。！？""）与常见错别字都要照实转录，**不要顺手把学生的错误改对**——批改的依据就是你识别出的原始文字；
+   - 如果图片整体模糊到无法辨认（例如严重失焦、反光遮挡、只拍到页面一角），**不要猜测编造**，请在 title 字段填入"图片不清晰"，paragraphs 只放你确实看清的句子，并在 review 开头明确告诉用户"图片不够清晰，建议重新拍摄：光线从上往下、纸面平整、四角完整入镜"。
    如果原文没有写标题（或标题被遮挡、无法辨认），不要填"未命名"，请根据文章内容自行拟定一个贴切的标题（8~14 字，点明事件或中心，不要用"我的一天""难忘的事"这类泛标题），填入 title 字段。
    若一次传入多张图片：它们按顺序是同一篇作文的第 1 页、第 2 页……，请跨页合并成一篇，不要把每页当成独立作文，也不要跨页重复或遗漏句子。
 2. 四个维度各给一个 0~1 的达成率（ratio），保留两位小数。
@@ -81,6 +85,30 @@ ${dims}
 }`;
   }
 
+  /* 修复被截断的 JSON：补齐未闭合的字符串与括号 */
+  function repairTruncated(str) {
+    let s = String(str).trim();
+    // 去掉末尾不完整的片段（最后一个逗号或冒号之后被截断）
+    let inStr = false, esc = false;
+    const stack = [];
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (esc) { esc = false; continue; }
+      if (c.charCodeAt(0) === 92) { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === '{' || c === '[') stack.push(c);
+      else if (c === '}' || c === ']') stack.pop();
+    }
+    if (inStr) s += '"';                      // 补上未闭合的字符串
+    s = s.replace(/[,:]\s*$/, '');            // 去掉悬空的逗号/冒号
+    while (stack.length) {                     // 补齐括号
+      const open = stack.pop();
+      s += open === '{' ? '}' : ']';
+    }
+    return s;
+  }
+
   /* ---------- 从文本里抽取 JSON ---------- */
   function extractJSON(text) {
     if (!text) throw new Error('AI 未返回内容');
@@ -92,9 +120,16 @@ ${dims}
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     if (a >= 0 && b > a) {
       const seg = s.slice(a, b + 1);
-      try { return JSON.parse(seg); } catch (e) {}
-      // 常见修复：尾逗号
-      try { return JSON.parse(seg.replace(/,\s*([}\]])/g, '$1')); } catch (e) {}
+      // 依次尝试几种稳定修复，任一成功即返回
+      const t1 = seg.replace(/,\s*([}\]])/g, '$1');                       // 尾逗号
+      const t2 = t1.replace(/[“”]/g, '"').replace(/[‘’]/g, "'"); // 中文引号
+      const tries = [seg, t1, t2];
+      for (const t of tries) {
+        try { return JSON.parse(t); } catch (e) {}
+      }
+      // 被截断的 JSON：尝试补齐括号后解析
+      const fixed = repairTruncated(seg);
+      if (fixed) { try { return JSON.parse(fixed); } catch (e) {} }
     }
     throw new Error('AI 返回的内容不是有效 JSON');
   }
@@ -109,6 +144,9 @@ ${dims}
     const body = {
       model: cfg.model,
       temperature: temp,
+      // 输出上限：批改报告含原文识别 + 14 条批注 + 润色全文，很容易超过 2000 token。
+      // 不显式指定会被默认值截断，导致 JSON 不完整、解析失败。
+      max_tokens: 8192,
       messages: [{
         role: 'user',
         content: [
@@ -255,9 +293,36 @@ ${dims}
     const st = (txt, pct) => { onStage && onStage(txt, pct); };
     st('OCR 文字识别中…', 10);
     const t0 = Date.now();
-    const raw = m === 'api'
-      ? await callAPI(cfg.api, prompt, img, signal)
-      : await callLocal(cfg.local, prompt, img, signal);
+    // 自动重试：网络抖动、5xx、JSON 解析失败时重试，最多 3 次
+    // 401/403/400 这类确定性错误不重试，直接报错，避免白等
+    const callOnce = () => m === 'api'
+      ? callAPI(cfg.api, prompt, img, signal)
+      : callLocal(cfg.local, prompt, img, signal);
+
+    const MAX_TRY = 3;
+    let raw = null, lastErr = null;
+    for (let attempt = 1; attempt <= MAX_TRY; attempt++) {
+      try {
+        raw = await callOnce();
+        break;
+      } catch (e) {
+        lastErr = e;
+        if (e && e.code === 'ABORTED') throw e;
+        const msg = String(e && e.message || '');
+        // 确定性错误不重试
+        if (/^接口返回 (400|401|403|404)/.test(msg)) throw e;
+        if (attempt < MAX_TRY) {
+          st(`第 ${attempt} 次失败，${attempt + 1} 秒后重试…`, 10 + attempt * 12);
+          await new Promise(r => setTimeout(r, 1500 * attempt));
+        }
+      }
+    }
+    if (!raw) {
+      const em = String(lastErr && lastErr.message || '未知错误');
+      const er = new Error(`批改失败：${em}`);
+      er.detail = em;
+      throw er;
+    }
     st('四维评分计算中…', 62);
     // 让阶段切换在界面上可见（极快返回时不至于一闪而过）
     if (Date.now() - t0 < 260) await new Promise(r => setTimeout(r, 160));
@@ -436,5 +501,79 @@ ${dims}
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
     .slice(0, n || 300);
 
-  global.ZPAI = { grade, mode, readCfg, CFG_KEY, extractJSON, buildPrompt };
+  /* ---------- 连接测试 ----------
+   * 用一次最小的 chat/completions 请求探测，而不是 /models
+   * （火山方舟、部分兼容网关并不提供 /models，用它测会误报失败）。
+   * 返回 { ok, ms, reason }，reason 面向普通用户措辞。 */
+  async function testConnection(cfg) {
+    const base = String(cfg.base || '').replace(/\/+$/, '');
+    const t0 = Date.now();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
+
+    const body = {
+      model: cfg.model,
+      temperature: typeof cfg.temperature === 'number' ? cfg.temperature : 0.1,
+      max_tokens: 16,
+      messages: [{ role: 'user', content: '只回复两个字：可用' }]
+    };
+    // 带上思考开关（若模型支持），和不支持时一样能通过
+    const nm = String(cfg.model || '').toLowerCase();
+    if (/doubao|seed|ark|volc|deepseek|qwen|glm|kimi/.test(nm)) {
+      body.thinking = { type: cfg.thinking === true ? 'enabled' : 'disabled' };
+    }
+
+    try {
+      let res = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      // 若因 thinking 字段被拒，去掉后重试一次
+      if (!res.ok && (res.status === 400 || res.status === 422) && body.thinking) {
+        const b2 = Object.assign({}, body); delete b2.thinking;
+        try {
+          const r2 = await fetch(base + '/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+            body: JSON.stringify(b2),
+            signal: ctrl.signal
+          });
+          if (r2.ok) res = r2;
+        } catch (e) {}
+      }
+      const ms = Date.now() - t0;
+      if (res.ok) return { ok: true, ms };
+
+      let detail = '';
+      try {
+        const j = await res.json();
+        detail = (j.error && (j.error.message || j.error.code)) || j.message || '';
+      } catch (e) {}
+
+      const map = {
+        401: 'API Key 无效或已过期，请检查是否复制完整',
+        403: '这个 API Key 没有调用该模型的权限，请到控制台开通',
+        404: detail
+          ? `接口地址或模型名不对（${detail}）。地址一般以 /v1 或 /api/v3 结尾`
+          : '接口地址或模型名不对，请检查地址结尾与模型名称',
+        429: '调用太频繁或额度已用完，稍后再试或查看账户余额',
+        500: '服务端出错，稍后重试',
+        503: '服务暂时不可用，稍后重试'
+      };
+      const reason = map[res.status] || (detail ? `HTTP ${res.status}：${detail}` : `HTTP ${res.status}`);
+      return { ok: false, reason };
+    } catch (e) {
+      const ms = Date.now() - t0;
+      if (e && e.name === 'AbortError') {
+        return { ok: false, reason: '30 秒内没有响应，请检查网络或接口地址' };
+      }
+      return { ok: false, reason: '网络不通：' + (e.message || '请检查网络连接或接口地址') };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  global.ZPAI = { grade, mode, readCfg, CFG_KEY, extractJSON, buildPrompt, testConnection };
 })(window);

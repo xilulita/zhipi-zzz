@@ -287,7 +287,12 @@
   }
 
   /* ================= 左侧：上传 ================= */
-  const MAXW = 1500;
+  /* 上传压缩：兼顾识别率与传输大小
+   * - 长边 1800px：手写小字也能保留笔画，低于 1200 时 OCR 明显掉字
+   * - JPEG 质量 0.9：0.8 以下压缩噪点会被模型误认成笔画
+   * - 超过 1.8MB 时再降一档质量，避免单请求过大导致超时 */
+  const MAXW = 1800;
+  const MAX_BYTES = 1.8 * 1024 * 1024;
   function compressImage(file) {
     return new Promise(resolve => {
       const fr = new FileReader();
@@ -300,8 +305,16 @@
           cv.width = w; cv.height = h;
           const ctx = cv.getContext('2d');
           ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+          // 提升对比度：手写稿常偏灰，增强后笔画更清晰
+          ctx.filter = 'contrast(1.06) saturate(0.95)';
           ctx.drawImage(img, 0, 0, w, h);
-          const data = cv.toDataURL('image/jpeg', 0.82);
+          ctx.filter = 'none';
+          let q = 0.9;
+          let data = cv.toDataURL('image/jpeg', q);
+          while (data.length * 0.75 > MAX_BYTES && q > 0.62) {
+            q -= 0.06;
+            data = cv.toDataURL('image/jpeg', q);
+          }
           resolve({ data, w, h, name: file.name, raw: file.size, size: Math.round(data.length * 0.75) });
         };
         img.onerror = () => resolve(null);
@@ -903,44 +916,63 @@
       }).filter(x => x.el)
         .sort((x, y) => (x.a.y - y.a.y) || (x.a.x - y.a.x));
 
-      // 一、先按"就近原则"贴住各自划线（卡片中心对齐划线中心）
-      let placed = [];
-      items.forEach(({ a, el }) => {
-        const h = el.offsetHeight || 60;
-        const anchor = colH * a.y;
-        let top = (typeof a.cardTop === 'number')
-          ? a.cardTop
-          : Math.max(PAD_TOP, anchor - h / 2);
-        top = Math.min(top, Math.max(PAD_TOP, colH - h));
-        el.style.top = top + 'px';
-        placed.push({ a, el, top, h });
-      });
+      /* 一、测量真实高度（已取消 5 行截断，卡片会是完整高度） */
+      const placed = items.map(({ a, el }) => ({
+        a, el, h: Math.max(24, el.offsetHeight || 60), anchor: colH * a.y
+      }));
 
-      // 二、自上而下消除重叠：被压住的下移，再整体回推避免溢出
-      placed.sort((x, y) => x.top - y.top);
-      let cursor = PAD_TOP;
-      placed.forEach(it => {
-        const top = Math.max(it.top, cursor);
-        it.top = top;
-        it.el.style.top = top + 'px';
-        cursor = top + it.h + GAP;
-      });
+      const totalH = placed.reduce((sum, it) => sum + it.h, 0) + GAP * Math.max(0, placed.length - 1);
 
-      // 三、底部溢出时整体上移，保证最后一张卡片也在可视区内
-      const overflow = cursor - GAP - colH;
-      if (overflow > 0) {
-        let back = 0;
-        for (let i = placed.length - 1; i >= 0; i--) {
-          const minTop = i === 0 ? PAD_TOP : placed[i - 1].top + placed[i - 1].h + GAP;
-          const want = placed[i].top - Math.max(0, overflow - back);
-          const real = Math.max(minTop, want);
-          back += Math.max(0, placed[i].top - real);
-          placed[i].top = real;
-          placed[i].el.style.top = real + 'px';
+      /* 二、排布策略
+       *   情况 A：卡片总高 ≤ 纸张高度 → 中心对齐各自划线，再自上而下消重叠
+       *   情况 B：卡片总高 > 纸张高度 → 不能硬塞。改为「按比例均匀分布」：
+       *           把纸张高度按卡片数量切分，每张卡的锚点占据一个等分区间，
+       *           卡片落在各自区间的中点。这样既不会溢出，也还大致贴着对应的划线。
+       *           同时把列的最小高度放宽到卡片总高，保证最后一张完整可见。 */
+      if (totalH <= colH) {
+        // 情况 A：贴住划线
+        placed.forEach(it => {
+          let top = (typeof it.a.cardTop === 'number')
+            ? it.a.cardTop
+            : Math.max(PAD_TOP, it.anchor - it.h / 2);
+          it.top = Math.min(top, Math.max(PAD_TOP, colH - it.h));
+        });
+        placed.sort((x, y) => x.top - y.top);
+        let cursor = PAD_TOP;
+        placed.forEach(it => {
+          it.top = Math.max(it.top, cursor);
+          cursor = it.top + it.h + GAP;
+        });
+        // 底部溢出则整体上推（此时总高够放，只是分布偏差）
+        const overflow = cursor - GAP - colH;
+        if (overflow > 0) {
+          let back = 0;
+          for (let i = placed.length - 1; i >= 0; i--) {
+            const minTop = i === 0 ? PAD_TOP : placed[i - 1].top + placed[i - 1].h + GAP;
+            const want = placed[i].top - Math.max(0, overflow - back);
+            const real = Math.max(minTop, want);
+            back += Math.max(0, placed[i].top - real);
+            placed[i].top = real;
+          }
         }
+        col.style.minHeight = colH + 'px';
+      } else {
+        // 情况 B：均匀分布，绝不重叠、绝不裁切
+        // 卡片按锚点顺序排序后，依次紧排；同时把列撑高，容纳全部卡片
+        placed.sort((x, y) => (x.anchor - y.anchor) || (x.h - y.h));
+        let cursor = PAD_TOP;
+        placed.forEach(it => {
+          it.top = cursor;
+          cursor += it.h + GAP;
+        });
+        col.style.minHeight = Math.max(colH, cursor) + 'px';
       }
-      // 记录落位，供拖拽使用
-      placed.forEach(it => { it.a._cardTop = it.top; });
+
+      // 三、写回定位
+      placed.forEach(it => {
+        it.el.style.top = Math.round(it.top) + 'px';
+        it.a._cardTop = it.top;
+      });
     });
 
     drawConnectors();
@@ -2809,11 +2841,25 @@
       $('#adTest').onclick = async () => {
         const base = $('#adBase').value.trim(), key = $('#adKey').value.trim(), model = $('#adModel').value.trim();
         if (!base || !key) return toast('请先填写接口地址与 API Key');
-        toast('正在测试连接…');
+        if (!model) return toast('请填写模型名称，例如 doubao-2.1-turbo');
+        const btn = $('#adTest');
+        const oldTxt = btn.textContent;
+        btn.disabled = true; btn.textContent = '测试中…';
         try {
-          const r = await fetch(base.replace(/\/$/, '') + '/models', { headers: { Authorization: 'Bearer ' + key } });
-          toast(r.ok ? '连接成功' : '连接失败：HTTP ' + r.status);
-        } catch (e) { toast('连接失败：' + (e.message || '网络错误')); }
+          // 用一次最小的 chat/completions 请求做真实探测。
+          // 火山方舟 / 通义 / 智谱等并不都提供 /models 端点，拿它测试会误报失败。
+          const r = await window.ZPAI.testConnection({
+            base, key, model,
+            thinking: (() => { const on = document.querySelector('.mode-btn.on'); return on && on.dataset.mode === 'quality'; })(),
+            temperature: 0.1
+          });
+          if (r.ok) toast(`连接成功 · 模型可用（${r.ms}ms）`);
+          else toast('连接失败：' + r.reason);
+        } catch (e) {
+          toast('连接失败：' + (e.message || '网络错误'));
+        } finally {
+          btn.disabled = false; btn.textContent = oldTxt;
+        }
       };
       $('#adLocalSave').onclick = () => {
         const base = $('#adLocalBase').value.trim(), model = $('#adLocalModel').value.trim();

@@ -23,7 +23,7 @@
   padding:1.5px 6px;border-radius:5px;margin-bottom:5px;letter-spacing:.2px}
 .anno .lb::before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}
 .anno .tx{font-size:10.2px;line-height:1.58;color:#4a4d57;word-break:break-word;
-  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+  }
 .anno .tx b{display:inline}
 .anno .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .anno .tx b{color:#1a1b1f;font-weight:600}
