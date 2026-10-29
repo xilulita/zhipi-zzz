@@ -538,9 +538,17 @@ function boardPageHTML(pg, totalPages, opts) {
   const o = opts || {};
   const g = boardGeometry(pg, o);
   const annos = pg.annos || [];
-  const valid = annos.filter(a => a.located !== false);
+  // 只有坐标完整且有限的批注才画到纸面上；未定位的只出现在两侧卡片里
+  const valid = annos.filter(a => a.located !== false
+    && Number.isFinite(a.x) && Number.isFinite(a.y)
+    && Number.isFinite(a.w) && Number.isFinite(a.h));
   const left = valid.filter(a => a.side !== 'right').sort((x, z) => x.y - z.y);
-  const right = valid.filter(a => a.side === 'right').sort((x, z) => x.y - z.y);
+  // 未定位的批注不画纸面标记，但仍要作为卡片呈现，学生才能读到这条意见
+  const unloc = annos.filter(a => valid.indexOf(a) < 0);
+  left.push(...unloc.filter(a => a.side !== 'right'));
+  const right = valid.filter(a => a.side === 'right')
+    .concat(unloc.filter(a => a.side === 'right'))
+    .sort((x, z) => (Number.isFinite(x.y) ? x.y : 0.5) - (Number.isFinite(z.y) ? z.y : 0.5));
   const marks = markLayerHTML(pg, g, valid);
   const cap = totalPages > 1
     ? `第 ${pg.page} / ${totalPages} 页 · ${annos.length} 条批注`

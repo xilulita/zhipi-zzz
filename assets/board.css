@@ -12,7 +12,13 @@
 .margin-col{flex:0 0 auto;display:block;position:relative;padding:0}
 .margin-col.left{padding-right:18px}
 .margin-col.right{padding-left:18px}
-.anno-row{display:block;width:100%}
+/* 列高与纸张一致，卡片永不越界；超出时卡片内部滚动 */
+.margin-col{overflow:visible}
+/* 关键：外层行不参与定位。
+   style.css 里旧的 .anno-row{position:relative;display:flex} 会让每个行盒成为
+   独立定位基准，卡片 top 就相对各自行盒计算，结果全部叠在一起。
+   这里显式覆盖：让行盒「消失」，卡片直接以 .margin-col 为基准。 */
+.anno-row{display:contents !important;position:static !important}
 
 .anno{position:absolute;top:0;left:0;right:0;background:#fff;border:1px solid #e9ebf2;border-radius:11px;
   padding:7px 8px 8px;box-shadow:0 1px 2px rgba(20,23,45,.04),0 4px 14px rgba(20,23,45,.05);
@@ -58,6 +64,8 @@
 .ink-mark{position:absolute;border-radius:3px;pointer-events:none;transition:box-shadow .18s;--mark:#5b5ce2}
 .mk-body{position:absolute;inset:0;pointer-events:auto;cursor:grab;border-radius:2px}
 .mk-body:active{cursor:grabbing}
+/* ::after 只是画下划线的装饰层，绝不能吃掉鼠标事件（否则整个方格无法选中/拖动） */
+.ink-mark::after{content:"";position:absolute;inset:0;border-radius:2px;pointer-events:none}
 .ink-mark.dragging{box-shadow:0 0 0 2px rgba(91,92,226,.55)}
 .mk-grip{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;border-radius:3px;
   background:#fff;border:1.6px solid var(--mark);cursor:nwse-resize;pointer-events:auto;opacity:0;
@@ -70,7 +78,6 @@
 .mk-del:hover{background:#e2554f;color:#fff}
 body.mk-dragging{cursor:grabbing;user-select:none}
 body.mk-dragging .ink-mark{transition:none}
-.ink-mark::after{content:"";position:absolute;inset:0;border-radius:2px}
 .ink-mark.err{background:rgba(226,85,79,.10);box-shadow:0 0 0 1.4px rgba(226,85,79,.32) inset}
 .ink-mark.err::after{border-bottom:1.8px solid rgba(226,85,79,.72)}
 .ink-mark.polish{background:rgba(217,162,35,.10);box-shadow:0 0 0 1.4px rgba(217,162,35,.32) inset}

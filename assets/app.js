@@ -848,7 +848,13 @@
     const byWidth = avail - marginW * 2 - 14;
     const byHeight = maxH / ratio;
     const paperW = Math.max(180, Math.min(byWidth + (wideDoc ? 20 : 0), byHeight, 760));
-    const marks = A.filter(a => a.located !== false).map(a => `<div class="ink-mark ${a.type}" data-a="${a.id}" data-side="${a.side}"
+    /* 只画坐标真实有效的批注方格。
+     * 以前对缺失坐标的批注兜底成同一个默认矩形，导致所有方格叠在纸面同一处，
+     * 互相覆盖后只有一个能点到，其余既选不中也拖不动。
+     * 现在没有坐标就不画方格（批注文字仍列在两侧卡片里）。 */
+    const marks = A.filter(a => a.located !== false
+        && Number.isFinite(a.x) && Number.isFinite(a.y) && Number.isFinite(a.w) && Number.isFinite(a.h))
+      .map(a => `<div class="ink-mark ${a.type}" data-a="${a.id}" data-side="${a.side}"
         style="left:${a.x * 100}%;top:${a.y * 100}%;width:${a.w * 100}%;height:${a.h * 100}%">
         <div class="mk-body"></div>
         <span class="mark-no">${a.no || ''}</span>
@@ -914,21 +920,44 @@
         if (el) { el.style.position = 'absolute'; el.style.left = '0'; el.style.right = '0'; }
         return { a, el };
       }).filter(x => x.el)
-        .sort((x, y) => (x.a.y - y.a.y) || (x.a.x - y.a.x));
+        // 排序键先做数值兜底：未定位批注的 y/x 可能是 null，直接相减会得到 NaN 导致排序错乱
+        .sort((x, y) => {
+          const ky = (Number.isFinite(x.a.y) ? x.a.y : 0.5) - (Number.isFinite(y.a.y) ? y.a.y : 0.5);
+          if (ky) return ky;
+          return (Number.isFinite(x.a.x) ? x.a.x : 0) - (Number.isFinite(y.a.x) ? y.a.x : 0);
+        });
 
-      /* 一、测量真实高度（已取消 5 行截断，卡片会是完整高度） */
-      const placed = items.map(({ a, el }) => ({
-        a, el, h: Math.max(24, el.offsetHeight || 60), anchor: colH * a.y
-      }));
+      /* 一、测量真实高度
+       * 必须先清掉上一轮留下的 maxHeight/overflow 再测：
+       * 否则卡片被上一轮的 maxHeight 压过，offsetHeight 量到的是压缩值，
+       * 后面的排布就会按错误的高度算间距，导致卡片互相压叠。 */
+      items.forEach(({ el }) => {
+        el.style.maxHeight = '';
+        el.style.overflowY = '';
+      });
+      void (items[0] && items[0].el.offsetHeight);   // 强制重排
+
+      const placed = items.map(({ a, el }) => {
+        // 锚点优先级：用户手动拖过的位置 > 纸面 y 坐标 > 居中
+        const anchorRatio = (typeof a.cardAnchor === 'number') ? a.cardAnchor
+          : (Number.isFinite(a.y) ? a.y : 0.5);
+        return {
+          a, el,
+          h: Math.max(24, el.offsetHeight || 60),
+          anchor: colH * anchorRatio
+        };
+      });
 
       const totalH = placed.reduce((sum, it) => sum + it.h, 0) + GAP * Math.max(0, placed.length - 1);
 
       /* 二、排布策略
-       *   情况 A：卡片总高 ≤ 纸张高度 → 中心对齐各自划线，再自上而下消重叠
-       *   情况 B：卡片总高 > 纸张高度 → 不能硬塞。改为「按比例均匀分布」：
-       *           把纸张高度按卡片数量切分，每张卡的锚点占据一个等分区间，
-       *           卡片落在各自区间的中点。这样既不会溢出，也还大致贴着对应的划线。
-       *           同时把列的最小高度放宽到卡片总高，保证最后一张完整可见。 */
+       * 铁律：卡片必须全部落在「纸张高度」范围内，绝不允许撑出白板。
+       *
+       * 情况 A：卡片总高 ≤ 纸张高度 → 中心对齐各自划线，再自上而下消重叠。
+       * 情况 B：卡片总高 > 纸张高度 → 空间不够，按「等分区间」压缩排布：
+       *           把纸张高度按卡片数量切成等分，每张卡落在自己区间的起点，
+       *           并把每张卡的最大可用高度限制为「等分高度」，超出部分内部滚动。
+       *           这样卡片一定在纸高范围内，也不会互相重叠。 */
       if (totalH <= colH) {
         // 情况 A：贴住划线
         placed.forEach(it => {
@@ -943,36 +972,82 @@
           it.top = Math.max(it.top, cursor);
           cursor = it.top + it.h + GAP;
         });
-        // 底部溢出则整体上推（此时总高够放，只是分布偏差）
+        /* 底部溢出则整体上推。
+         * 旧实现从后往前逐个“试着上推”，但用的是已经被改动过的
+         * placed[i-1].top 做下界，结果间距被算错、卡片互相压住。
+         * 改为：先算出总溢出量，再整体平移，最后做一次从头开始的
+         * 正向消重叠（下界始终取「上一张已定稿的底边」）。 */
         const overflow = cursor - GAP - colH;
         if (overflow > 0) {
-          let back = 0;
-          for (let i = placed.length - 1; i >= 0; i--) {
-            const minTop = i === 0 ? PAD_TOP : placed[i - 1].top + placed[i - 1].h + GAP;
-            const want = placed[i].top - Math.max(0, overflow - back);
-            const real = Math.max(minTop, want);
-            back += Math.max(0, placed[i].top - real);
-            placed[i].top = real;
+          placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - overflow); });
+          // 正向重排，确保相邻卡片之间至少留 GAP
+          let c2 = PAD_TOP;
+          placed.forEach(it => {
+            it.top = Math.max(it.top, c2);
+            c2 = it.top + it.h + GAP;
+          });
+          // 若重排后又超出底部，把整列压缩到纸高之内
+          const over2 = c2 - GAP - colH;
+          if (over2 > 0) {
+            const n = placed.length;
+            const shrink = over2 / Math.max(1, n);
+            placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - shrink); });
+            let c3 = PAD_TOP;
+            placed.forEach(it => {
+              it.top = Math.max(it.top, c3);
+              c3 = it.top + it.h + GAP;
+            });
           }
         }
-        col.style.minHeight = colH + 'px';
       } else {
-        // 情况 B：均匀分布，绝不重叠、绝不裁切
-        // 卡片按锚点顺序排序后，依次紧排；同时把列撑高，容纳全部卡片
+        /* 情况 B：空间确实不够
+         * 不再撑高整列（那是卡片跑到白板外面的元凶），
+         * 改为把纸张高度等分，每张卡独占一个区间，超出部分由最终兜底做卡内滚动。 */
         placed.sort((x, y) => (x.anchor - y.anchor) || (x.h - y.h));
-        let cursor = PAD_TOP;
-        placed.forEach(it => {
-          it.top = cursor;
-          cursor += it.h + GAP;
+        const slots = placed.length;
+        const slotH = Math.max(40, (colH - PAD_TOP - GAP * (slots - 1)) / slots);
+        placed.forEach((it, i) => {
+          it.top = PAD_TOP + i * (slotH + GAP);
         });
-        col.style.minHeight = Math.max(colH, cursor) + 'px';
+        // 确定性收尾：正向重排一遍，保证不重叠且不越过纸张底边
+        let cB = PAD_TOP;
+        placed.forEach(it => {
+          it.top = Math.max(it.top, cB);
+          cB = it.top + Math.min(it.h, slotH) + GAP;
+        });
+        const overB = cB - GAP - colH;
+        if (overB > 0) {
+          const shift = overB / Math.max(1, placed.length);
+          placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - shift); });
+          let cB2 = PAD_TOP;
+          placed.forEach(it => {
+            it.top = Math.max(it.top, cB2);
+            cB2 = it.top + Math.min(it.h, slotH) + GAP;
+          });
+        }
       }
 
-      // 三、写回定位
+      /* 统一兜底：无论哪种情况，卡片几何边界都不许越出纸张 */
+      const clampTop = top => Math.max(PAD_TOP, Math.min(top, Math.max(PAD_TOP, colH - 24)));
       placed.forEach(it => {
+        it.top = clampTop(it.top);
         it.el.style.top = Math.round(it.top) + 'px';
+        // 只在「自然高度确实会超出剩余空间」时才压缩，避免无谓地改高度、
+        // 让下一轮测量拿到的尺寸偏离真实值。
+        const avail = Math.max(48, colH - it.top - 2);
+        if (it.h > avail + 1) {
+          it.el.style.maxHeight = Math.floor(avail) + 'px';
+          it.el.style.overflowY = 'auto';
+        } else {
+          it.el.style.maxHeight = '';
+          it.el.style.overflowY = '';
+        }
         it.a._cardTop = it.top;
       });
+      // 列本身永远不撑高，跟着纸张走
+      col.style.minHeight = colH + 'px';
+      col.style.height = colH + 'px';
+      col.style.overflow = 'visible';
     });
 
     drawConnectors();
@@ -997,7 +1072,9 @@
     annos.forEach(a => {
       const el = document.querySelector(`.anno[data-a="${a.id}"]`);
       const mark = document.querySelector(`.ink-mark[data-a="${a.id}"]`);
+      // 未定位（没有方格）的批注不画引线，否则会从卡片拉一条线到图片外的 (0,0)
       if (!el || !mark || a.located === false) return;
+      if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) return;
       const elRect = el.getBoundingClientRect();
       const markRect = mark.getBoundingClientRect();
       const y1 = scaleSafe(elRect.top + 16 - cx.top);
@@ -1079,11 +1156,12 @@
             const colH = img ? img.getBoundingClientRect().height / (state.zoom || 1) : 0;
             const top = parseFloat(el.style.top) || 0;
             a.cardTop = top;
-            // 关键：把卡片顶端换算成百分比写回 y，导出才能拿到微调后的位置
-            if (colH > 4) a.y = Math.max(0, Math.min(1, (top + el.offsetHeight / 2) / colH));
-            if (a.x == null) a.x = 0.08;
-            if (a.w == null) a.w = 0.7;
-            a.located = true;
+            // 只调整卡片在侧栏的纵向位置；不擅自给未定位的批注编造纸面坐标
+            if (colH > 4) a.cardAnchor = Math.max(0, Math.min(1, (top + el.offsetHeight / 2) / colH));
+            // 原本就有纸面位置的批注，同步 y，保证导出时引线仍然对上
+            if (a.located !== false && Number.isFinite(a.y) && colH > 4) {
+              a.y = Math.max(0, Math.min(1 - (a.h || 0.03), (top + el.offsetHeight / 2) / colH));
+            }
           }
           toast('已调整批注位置');
         }

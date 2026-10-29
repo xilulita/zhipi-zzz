@@ -49,6 +49,8 @@ ${dims}
 3. 给出 3 条文章亮点，每条必须引用原文中的真实句子。
 4. 给出 2~3 条存在问题，每条必须指明原文中的具体句子。
 5. 给出 10~14 条批注（按文章长短决定，短文不少于 8 条，长文可到 16 条）。**每一条都必须钉在原文的真实句子上，且各条指向不同的句子**——宁可少给，也不要把同一句话重复点评，或用"这句可以更好"这类空话凑数。
+   - **多页作文务必按页分配**：每一页都要有自己的批注，不要把所有批注都压在第 1 页。页数越多，每页分到的条数相应减少（如两页各 4~6 条，三页各 3~4 条），保证学生翻到每一页都能看到针对本页文字的意见。
+   - **但要客观真实**：如果某一页确实写得规整、没有值得指出的问题，该页可以少给甚至不给，**不要为了凑数硬挑毛病、不要重复点评同一句**。有则指出，没有就留白。
    - err（错别字/病句）：尽最大努力找全，通常应占一半以上——错别字、用词不当（动宾搭配、修饰语与中心词不搭）、"的/地/得"误用、标点错误、成分残缺（缺主语/谓语）、语序不当、句意重复、指代不明。每一处单独一条，comment 里要说明**为什么错**，而不只是贴个标签；
    - polish（润色）：3~5 条，每条都必须：先指出这一句"现在是怎么写的、问题在哪"，再给出**改写后的完整句子**。避免"可以更生动"这类笼统说法；
    - good（好句）：2~3 条，标出全文最有画面感、最动人的句子，说明它好在哪里（用了什么手法、为什么有力量）；
@@ -327,7 +329,8 @@ ${dims}
     // 让阶段切换在界面上可见（极快返回时不至于一闪而过）
     if (Date.now() - t0 < 260) await new Promise(r => setTimeout(r, 160));
     st('逐句批注生成中…', 78);
-    const out = normalize(raw, gradeMeta, weights, genreName);
+    // 把总页数传给归一化：多页稿要保证每页都有对应批注，且名额按页分配
+    const out = normalize(raw, gradeMeta, weights, genreName, pageImgs.length);
     st('报告排版与渲染…', 94);
     out.usage = raw.__usage || null;
     out.usageEst = !raw.__usage;
@@ -335,7 +338,8 @@ ${dims}
   }
 
   /* ---------- 归一化为内部结构 ---------- */
-  function normalize(raw, gradeMeta, weights, genreName) {
+  function normalize(raw, gradeMeta, weights, genreName, totalPages) {
+    const PAGES = Math.max(1, Math.min(99, parseInt(totalPages, 10) || 1));
     // 统一口吻：学生称“小作者”，且不出现任何 AI 相关字眼
     const kid = v => String(v == null ? '' : v)
       .replace(/(?<!小)作者/g, '小作者')
@@ -395,7 +399,7 @@ ${dims}
     const words = text.replace(/\s/g, '').length;
 
     const typeMap = { good: 'good', err: 'err', polish: 'polish', dele: 'dele' };
-    // 批注：最多 8 条；润色不足 2 条时补齐（从 err/good 中借位提示）
+    // 批注条数：单页 8 条；多页按页给名额（每页 4~6 条），保证每页都有
     let rawAnnos = (raw.annotations || []).map(a => ({ ...a, type: typeMap[a.type] || 'polish' }));
     const polishCount = rawAnnos.filter(a => a.type === 'polish').length;
     if (polishCount < 2 && rawAnnos.length) {
@@ -410,32 +414,158 @@ ${dims}
         });
       }
     }
-    const annosPick = rawAnnos.slice(0, 8);
-    const rectOf = a => {
-      const x = num(a.x, 0.08);
-      const y = num(a.y, 0.08);
-      const w0 = Number.isFinite(Number(a.w)) ? Number(a.w) : 0.22;
-      const h0 = Number.isFinite(Number(a.h)) ? Number(a.h) : 0.035;
+
+    /* ---------- 多页：按页分配批注名额 ----------
+     * 旧逻辑 slice(0,8) 只留前 8 条，多页稿里后面的页会被整页剃光。
+     * 新逻辑：先按 page 分组，再按「每页保底 N 条、总额受限」的方式挑，
+     * 某一页模型确实没给出问题时留空（不硬凑），但保证名额没有被前面的页吃光。 */
+    const pageOf = a => Math.max(1, Math.min(PAGES, parseInt(a.page, 10) || 1));
+
+    /* 兜底：模型常常漏填 page，导致所有批注都压在第 1 页。
+     * 判定标准——多页稿里「第 1 页的条数 ≥ 总条数的 80% 且第 2 页起为空」，
+     * 视为模型根本没分页。此时按段落字数的累计比例，把批注重新摊到各页，
+     * 让第 2、3 页也有对应批注；如果模型确实分了页，则原样保留。 */
+    if (PAGES > 1 && rawAnnos.length) {
+      const cnt = {};
+      rawAnnos.forEach(a => { const p = pageOf(a); cnt[p] = (cnt[p] || 0) + 1; });
+      const firstPageShare = (cnt[1] || 0) / rawAnnos.length;
+      const laterEmpty = PAGES >= 2 && !Object.keys(cnt).some(k => +k >= 2);
+      if (laterEmpty && firstPageShare >= 0.8) {
+        // 用段落字数比例推断每页大致覆盖到第几段
+        const lens = paras.map(p => String(p).length);
+        const totalLen = lens.reduce((a, b) => a + b, 0) || 1;
+        // 每段归属页：按累计字数 / 总字数 映射到 1..PAGES
+        const pageOfPara = [];
+        let acc = 0;
+        lens.forEach(len => {
+          const mid = (acc + len / 2) / totalLen;
+          pageOfPara.push(Math.min(PAGES, Math.floor(mid * PAGES) + 1));
+          acc += len;
+        });
+        // 批注按所在段落的配额落到对应页
+        const assigned = new Array(PAGES + 1).fill(0);
+        rawAnnos.forEach((a, i) => {
+          // 用批注在数组中的相对位置映射到段落
+          const paraIdx = Math.min(paras.length - 1,
+            Math.floor((i / rawAnnos.length) * Math.max(1, paras.length)));
+          a.page = pageOfPara[paraIdx] || 1;
+          assigned[a.page]++;
+        });
+        // 保证：至少让第 2 页起各拿到 1 条（若模型给得够多）
+        for (let p = 2; p <= PAGES; p++) {
+          if (!assigned[p] && rawAnnos.length >= PAGES) {
+            // 从第 1 页借一条最靠后的批注过来
+            for (let j = rawAnnos.length - 1; j >= 0; j--) {
+              if (pageOf(rawAnnos[j]) === 1) { rawAnnos[j].page = p; assigned[p]++; assigned[1]--; break; }
+            }
+          }
+        }
+      }
+    }
+
+    const CAP_TOTAL = PAGES <= 1 ? 8 : Math.min(16, PAGES * 5);   // 多页最多 16 条，平均每页 4~5 条
+    const CAP_MIN_PAGE = PAGES <= 1 ? 8 : 3;                        // 多页时每页至少争取 3 条
+
+    let annosPick;
+    if (PAGES <= 1) {
+      annosPick = rawAnnos.slice(0, CAP_TOTAL);
+    } else {
+      const buckets = new Map();
+      for (let p = 1; p <= PAGES; p++) buckets.set(p, []);
+      rawAnnos.forEach(a => buckets.get(pageOf(a)).push(a));
+
+      /* 按页配额：
+       * 1) 每页先保底 CAP_MIN_PAGE 条；某页本身就不足这么多，有多少取多少；
+       * 2) 剩余名额优先补给「条数少的页」，让各页尽量均衡，
+       *    而不是让第 1 页把总名额吃光（这正是原来第 2、3 页没批注的原因）；
+       * 3) 全部页内都取完了还有空额，才允许前面的页继续加。 */
+      const quota = new Map();
+      for (let p = 1; p <= PAGES; p++) quota.set(p, 0);
+
+      // 第 1 步：保底
+      let used = 0;
+      for (let p = 1; p <= PAGES; p++) {
+        const b = buckets.get(p);
+        const take = Math.min(CAP_MIN_PAGE, b.length, CAP_TOTAL - used);
+        quota.set(p, take);
+        used += take;
+      }
+      // 第 2 步：均衡补足（每轮给当前最少的那几页各加 1 条）
+      let guard = 0;
+      while (used < CAP_TOTAL && guard++ < 200) {
+        // 找「还有余量」的页里当前配额最小的
+        let target = -1, minQ = Infinity;
+        for (let p = 1; p <= PAGES; p++) {
+          const b = buckets.get(p);
+          if (quota.get(p) >= b.length) continue;      // 这页已经没内容可取
+          const q = quota.get(p);
+          if (q < minQ) { minQ = q; target = p; }
+        }
+        if (target === -1) break;                       // 所有页都取完了
+        quota.set(target, quota.get(target) + 1);
+        used++;
+      }
+
+      // 第 3 步：按配额取，页码顺序输出
+      annosPick = [];
+      for (let p = 1; p <= PAGES; p++) {
+        const b = buckets.get(p);
+        annosPick = annosPick.concat(b.slice(0, quota.get(p)));
+      }
+    }
+    /* 坐标换算：
+     * 关键缺陷 —— 旧代码对缺失/非法坐标一律兜底成 (0.08, 0.08, 0.22, 0.035)，
+     * 于是所有「模型没给坐标」的批注全都叠在纸面同一处（表现为彩色方格堆成一团、
+     * 且因为完全重合，只有一个能点到，其余点不到也拖不动）。
+     * 新策略：
+     *   1) 坐标齐全且合法 → 原样使用，视为可定位；
+     *   2) 坐标缺失/越界/宽高为 0 → 标记 located=false，并且【不画方格】，
+     *      只在批注卡里呈现文字（学生仍能读到该条意见），
+     *      这样既不会在纸面留下一个假位置的格子，也不会互相压叠导致无法选中。 */
+    const isNum = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+    const validRect = a => {
+      if (!isNum(a.x) || !isNum(a.y)) return null;
+      const x = Number(a.x), y = Number(a.y);
+      const w = isNum(a.w) ? Number(a.w) : NaN;
+      const h = isNum(a.h) ? Number(a.h) : NaN;
+      if (!(x >= 0 && x < 1) || !(y >= 0 && y < 1)) return null;
+      if (!(w > 0) || !(h > 0)) return null;
       return {
-        x, y,
-        w: Math.max(0.012, Math.min(1 - x, w0)),
-        h: Math.max(0.012, Math.min(1 - y, h0))
+        x: Math.min(0.995, x), y: Math.min(0.995, y),
+        w: Math.max(0.012, Math.min(1 - Math.min(0.995, x), w)),
+        h: Math.max(0.012, Math.min(1 - Math.min(0.995, y), h))
       };
     };
+
+    // 页码先算好，编号按「页内顺序」排，保证每一页的编号都从 1 开始且连贯
+    const seqOfPage = new Map();
     const annos = annosPick.map((a, i) => {
-      const rect = rectOf(a);
-      const located = a.located !== false && [a.x, a.y, a.w].every(v => Number.isFinite(Number(v)));
-      const pg = Math.max(1, Math.min(99, parseInt(a.page, 10) || 1));
+      const rect = validRect(a);
+      const located = a.located !== false && !!rect;
+      const pg = Math.max(1, Math.min(PAGES, parseInt(a.page, 10) || 1));
+      const seq = (seqOfPage.get(pg) || 0) + 1;
+      seqOfPage.set(pg, seq);
+      // 未定位批注的卡片锚点：按页内序号均匀铺开，避免卡片叠在一起
+      let anchorY = null;
+      if (!located) {
+        const totalOnPage = annosPick.filter(x =>
+          Math.max(1, Math.min(PAGES, parseInt(x.page, 10) || 1)) === pg).length || 1;
+        anchorY = (seq - 1 + 0.5) / totalOnPage;
+      }
       return {
-        id: 'a' + i, no: i + 1,
+        id: 'a' + i, no: seq,
         page: pg,
         type: a.type,
-        side: i % 2 === 0 ? 'left' : 'right',
+        // 左右侧：按页内顺序左右交替，避免全堆一侧
+        side: seq % 2 === 1 ? 'left' : 'right',
         html: `<b>“${escShort(a.quote, 26)}”</b>　${escShort(a.comment, 90)}`,
         para: i,
         stat: { good: '好句', err: '病句', polish: '润色', dele: '删改' }[a.type],
         located,
-        x: rect.x, y: rect.y, w: rect.w, h: rect.h
+        // 未定位时坐标留空（不画方格），但给卡片一个独立的纵向锚点
+        x: rect ? rect.x : null, y: rect ? rect.y : anchorY,
+        w: rect ? rect.w : null, h: rect ? rect.h : null,
+        noLoc: !located
       };
     });
 
