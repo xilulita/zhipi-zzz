@@ -48,13 +48,16 @@ ${dims}
 2. 四个维度各给一个 0~1 的达成率（ratio），保留两位小数。
 3. 给出 3 条文章亮点，每条必须引用原文中的真实句子。
 4. 给出 2~3 条存在问题，每条必须指明原文中的具体句子。
-5. 给出 10~14 条批注（按文章长短决定，短文不少于 8 条，长文可到 16 条）。**每一条都必须钉在原文的真实句子上，且各条指向不同的句子**——宁可少给，也不要把同一句话重复点评，或用"这句可以更好"这类空话凑数。
+5. 给出 12~16 条批注（按文章长短决定，短文不少于 10 条，长文可到 16 条）。**每一条都必须钉在原文的真实句子上，且各条指向不同的句子**——宁可少给，也不要把同一句话重复点评，或用"这句可以更好"这类空话凑数。
    - **多页作文务必按页分配**：每一页都要有自己的批注，不要把所有批注都压在第 1 页。页数越多，每页分到的条数相应减少（如两页各 4~6 条，三页各 3~4 条），保证学生翻到每一页都能看到针对本页文字的意见。
    - **但要客观真实**：如果某一页确实写得规整、没有值得指出的问题，该页可以少给甚至不给，**不要为了凑数硬挑毛病、不要重复点评同一句**。有则指出，没有就留白。
-   - err（错别字/病句）：尽最大努力找全，通常应占一半以上——错别字、用词不当（动宾搭配、修饰语与中心词不搭）、"的/地/得"误用、标点错误、成分残缺（缺主语/谓语）、语序不当、句意重复、指代不明。每一处单独一条，comment 里要说明**为什么错**，而不只是贴个标签；
-   - polish（润色）：3~5 条，每条都必须：先指出这一句"现在是怎么写的、问题在哪"，再给出**改写后的完整句子**。避免"可以更生动"这类笼统说法；
+   - err（错别字/病句）：找全主要问题——错别字、用词不当（动宾搭配、修饰语与中心词不搭）、"的/地/得"误用、标点错误、成分残缺（缺主语/谓语）、语序不当、句意重复、指代不明。每一处单独一条，comment 里要说明**为什么错**，而不只是贴个标签；
+   - polish（润色）：**至少 3 条，文章长可到 5 条**，这是学生最需要的部分。每条必须写成「原句 → 改写句」的对照形式，comment 里先一句话点出这句"现在缺什么"，然后**用「」标出改写后的完整句子**，改写要真的动笔、看得出差别，不能只是加个形容词。
+     正例：「他跑得很快」→「他脚尖点着地跑，校服下摆被风掀起来，书包在背后一颠一颠」
+     反例：「这句话可以更生动一些」「可以加些细节」——这类空话一律不要。
    - good（好句）：2~3 条，标出全文最有画面感、最动人的句子，说明它好在哪里（用了什么手法、为什么有力量）；
    - dele（删改）：1~3 条，指出重复啰嗦、与中心无关、或可以合并的句子，并说明删掉后为什么更好。
+   四类都要有：挑错（err）之外，一定要给出"怎么写更好"（polish）和"哪里写得好"（good），不要整篇只挑毛病。
    每条必须包含：原文引用 quote（必须是图中真实存在的句子，逐字照抄）、点评 comment、所在页码 page（从 1 开始，只有一页时填 1）、位置坐标。
    坐标规则非常重要：坐标相对于该条批注所在的【那一页】图片，图片左上角为 (0,0)，右下角为 (1,1)。x/y 是 quote 实际文字区域左上角，w/h 是宽高，均为 0~1 小数；必须满足 x+w<=1、y+h<=1。矩形要贴住 quote 的首字与末字，行中心与文字中心一致，不要固定整行宽度，不要放在行间空白。若无法确定真实位置，设置 located=false，不要编造坐标。
 6. 总评 200~400 字，要有具体表扬、具体问题、可执行建议。
@@ -401,18 +404,100 @@ ${dims}
     const typeMap = { good: 'good', err: 'err', polish: 'polish', dele: 'dele' };
     // 批注条数：单页 8 条；多页按页给名额（每页 4~6 条），保证每页都有
     let rawAnnos = (raw.annotations || []).map(a => ({ ...a, type: typeMap[a.type] || 'polish' }));
-    const polishCount = rawAnnos.filter(a => a.type === 'polish').length;
-    if (polishCount < 2 && rawAnnos.length) {
-      // 把非润色的若干条"补一条润色提示"（不覆盖原批注，新增一条通用润色）
-      const need = 2 - polishCount;
-      for (let k = 0; k < need; k++) {
-        rawAnnos.push({
-          type: 'polish',
-          quote: (raw.paragraphs && raw.paragraphs[k]) || '',
-          comment: '此处可再具体些：补一个动作或感官细节，句子会更有画面感。',
-          located: false
-        });
+
+    /* 润色不足时补齐：早期版本补的是「此处可再具体些」这类空话，
+     * 学生看了不知道该怎么改，等于没给润色。这里改为：
+     * 优先从模型给的「润色后全文」里，按段落取对应改写句，凑成真正可对照的润色批注。 */
+    const polishCount0 = rawAnnos.filter(a => a.type === 'polish').length;
+    // 目标条数：3~5 条；文章句子确实不足 3 句时按实际句子数给（不硬凑、不重复同句）
+    const sentCount = paras.reduce((n, p) =>
+      n + String(p).split(/[。！？!?；;]/).filter(x => x.trim().length >= 6).length, 0);
+    const POLISH_MIN = Math.min(Math.max(3, Math.min(5, Math.round(rawAnnos.length / 3))),
+      Math.max(1, sentCount));
+    if (polishCount0 < POLISH_MIN) {
+      const polishedArr = Array.isArray(raw.polished) ? raw.polished : [];
+      // 已有批注引用的句子，避免重复点评同一句
+      const usedQuotes = new Set(rawAnnos.map(a => String(a.quote || '').trim()).filter(Boolean));
+      const need = POLISH_MIN - polishCount0;
+      const picked = [];
+
+      /* 把每段再切成「分句」，这样一段里也能给出多条润色——
+       * 否则文章只有两三段时，润色条数会被段落数卡死（永远凑不到 3 条）。 */
+      const splitSent = s => String(s).split(/(?<=[。！？!?；;])/).map(x => x.trim()).filter(x => x.length >= 6);
+      const origSents = paras.map(p => splitSent(p));
+      const rewSents = polishedArr.map(p => splitSent(p));
+
+      // 第一轮：按段落取「原文分句 → 改写分句」配对，各段轮流取，保证摊得开
+      const paraCount = Math.max(1, paras.length);
+      const perPara = Math.max(1, Math.ceil(need / paraCount));
+      for (let round = 0; round < perPara && picked.length < need; round++) {
+        for (let i = 0; i < paras.length && picked.length < need; i++) {
+          const origs = origSents[i] || [];
+          const rews = rewSents[i] || [];
+          if (!origs.length || !rews.length) continue;
+          const orig = origs[round];
+          if (!orig || usedQuotes.has(orig)) continue;
+          // 改写句按比例对应，避免越界
+          const idx = Math.min(rews.length - 1,
+            Math.round(round * (rews.length - 1) / Math.max(1, origs.length - 1)));
+          const rew = rews[idx] || rews[0];
+          picked.push({
+            type: 'polish',
+            quote: orig.slice(0, 40),
+            comment: `这一句可以这样写，句子会更有画面感：「${rew.slice(0, 70)}」`,
+            _paraIdx: i,          // 记录所属段落，页码兜底时据此摊到对应页
+            located: false
+          });
+          usedQuotes.add(orig);
+        }
       }
+      // 第二轮：还不够就用未用过的分句补，仍然给出具体改法（不用空话）
+      if (picked.length < need) {
+        for (let i = 0; i < origSents.length && picked.length < need; i++) {
+          for (const orig of (origSents[i] || [])) {
+            if (picked.length >= need) break;
+            if (usedQuotes.has(orig)) continue;
+            picked.push({
+              type: 'polish',
+              quote: orig.slice(0, 40),
+              comment: '这句是直述，可以先写「看到什么」，再写「心里怎么一变」，画面和情绪就都立起来了。',
+              located: false
+            });
+            usedQuotes.add(orig);
+          }
+        }
+      }
+      /* 素材实在不够（文章只有一两句话）时，用「同一句、不同角度」补足，
+       * 让学生至少拿到 3 条可操作的改写方向，而不是被段落数卡死在 2 条。
+       * 注意：同一句只补一次，避免同一句被两条润色重复点评。 */
+      if (picked.length < need && origSents.flat().length) {
+        const angles = [
+          { k: '句式', c: '这句话偏平铺直叙，试试拆成两小句：先写眼前看到的，再写心里冒出来的那个念头。' },
+          { k: '细节', c: '这句话只有结果没有过程，补一个具体的动作或声音，读者才能「看见」这个画面。' },
+          { k: '情绪', c: '这句话把情绪说得太满，不如只写一个身体反应（手抖、喉咙发紧），让读者自己体会。' }
+        ];
+        const flat = [];
+        origSents.forEach((arr, pi) => arr.forEach(s => flat.push({ s, pi })));
+        let ai2 = 0;
+        // 从没被第一轮用过的句子开始挑，实在没有才回到已用过的
+        const unused = flat.filter(x => !usedQuotes.has(x.s));
+        const pool = unused.length ? unused : flat;
+        for (let k = 0; k < pool.length && picked.length < need && ai2 < angles.length; k++) {
+          const target = pool[k];
+          if (usedQuotes.has(target.s)) continue;      // 同一句不重复补
+          const ang = angles[ai2];
+          picked.push({
+            type: 'polish',
+            quote: target.s.slice(0, 40),
+            comment: `换个角度改：${ang.c}`,
+            _paraIdx: target.pi,                        // 后面按段落摊到对应页
+            located: false
+          });
+          usedQuotes.add(target.s);
+          ai2++;
+        }
+      }
+      rawAnnos = rawAnnos.concat(picked);
     }
 
     /* ---------- 多页：按页分配批注名额 ----------
@@ -445,10 +530,15 @@ ${dims}
         // 批注按所在段落的配额落到对应页
         const assigned = new Array(PAGES + 1).fill(0);
         rawAnnos.forEach((a, i) => {
-          // 用批注在数组中的相对位置映射到段落
-          const paraIdx = Math.min(paras.length - 1,
-            Math.floor((i / rawAnnos.length) * Math.max(1, paras.length)));
-          a.page = pageOfPara[paraIdx] || 1;
+          if (typeof a._paraIdx === 'number') {
+            // 补出来的润色：直接用它所属段落映射到的页码，避免全堆到最后一页
+            a.page = pageOfPara[Math.min(pageOfPara.length - 1, a._paraIdx)] || 1;
+          } else {
+            // 模型原始批注：按数组中的相对位置映射到段落
+            const paraIdx = Math.min(paras.length - 1,
+              Math.floor((i / rawAnnos.length) * Math.max(1, paras.length)));
+            a.page = pageOfPara[paraIdx] || 1;
+          }
           assigned[a.page]++;
         });
         // 保证：至少让第 2 页起各拿到 1 条（若模型给得够多）
@@ -461,34 +551,119 @@ ${dims}
           }
         }
       }
+
+      /* 润色批注按段落跟随到对应页：
+       * 补出来的润色带 _paraIdx，如果它默认落在第 1 页、而所点评的段落在后面的页，
+       * 就把它挪到该段落所在页，避免「后面的页有字、批注却全在前面」。 */
+      const lens2 = paras.map(p => String(p).length);
+      const totalLen2 = lens2.reduce((a, b) => a + b, 0) || 1;
+      const pageOfPara2 = [];
+      let acc2 = 0;
+      lens2.forEach(len => {
+        const mid = (acc2 + len / 2) / totalLen2;
+        pageOfPara2.push(Math.min(PAGES, Math.floor(mid * PAGES) + 1));
+        acc2 += len;
+      });
+      rawAnnos.forEach(a => {
+        if (typeof a._paraIdx === 'number' && a.type === 'polish') {
+          const want = pageOfPara2[Math.min(pageOfPara2.length - 1, a._paraIdx)] || 1;
+          // 只在模型没给这位润色明确页码时才搬
+          const declaredPage = parseInt(a.page, 10);
+          if (!declaredPage || declaredPage === 1) a.page = want;
+        }
+      });
     }
 
-    const CAP_TOTAL = PAGES <= 1 ? 8 : Math.min(16, PAGES * 5);   // 多页最多 16 条，平均每页 4~5 条
-    const CAP_MIN_PAGE = PAGES <= 1 ? 8 : 3;                        // 多页时每页至少争取 3 条
+    const CAP_TOTAL = PAGES <= 1 ? 10 : Math.min(18, PAGES * 6);   // 单页 10 条；多页平均每页 5~6 条
+    const CAP_MIN_PAGE = PAGES <= 1 ? 10 : 4;                       // 多页时每页至少争取 4 条
+
+    /* 按类型保底：模型输出里 err 往往占大头且排在前面，
+     * 纯按顺序截断会把润色/好句/删改挤掉，学生只看得到挑错、看不到"该怎么写"。
+     * 这里先给每类留出底线名额，剩下的才按页均衡分。 */
+    const TYPE_FLOOR = PAGES <= 1
+      ? { polish: 3, good: 2, dele: 1, err: 3 }     // 单页 10 条：润色 3 + 好句 2 + 删改 1 + 病句 3
+      : { polish: 3, good: 1, dele: 1, err: 3 };    // 多页：润色同样保底 3 条（可跨页），其余按页摊
+
+    // 先按「类型保底」挑一批，保证润色不会被 err 挤占
+    const floorPick = new Set();
+    Object.keys(TYPE_FLOOR).forEach(t => {
+      const need = TYPE_FLOOR[t];
+      if (!need) return;
+      // 同类里优先取「多页稿每页各留一条」，避免全落在第一页
+      const same = rawAnnos.filter(a => a.type === t);
+      if (!same.length) return;
+      const byPage = new Map();
+      same.forEach(a => {
+        const p = pageOf(a);
+        if (!byPage.has(p)) byPage.set(p, []);
+        byPage.get(p).push(a);
+      });
+      // 轮转各页取，直到满足该类名额
+      const pages = Array.from(byPage.keys()).sort((x, y) => x - y);
+      let round = 0, taken = 0;
+      while (taken < need) {
+        let progressed = false;
+        for (const p of pages) {
+          if (taken >= need) break;
+          const arr = byPage.get(p);
+          if (arr[round]) { floorPick.add(arr[round]); taken++; progressed = true; }
+        }
+        if (!progressed) break;
+        round++;
+      }
+    });
 
     let annosPick;
     if (PAGES <= 1) {
-      annosPick = rawAnnos.slice(0, CAP_TOTAL);
+      // 单页：先放保底的类型，再按原顺序补足到上限
+      const picked = rawAnnos.filter(a => floorPick.has(a));
+      for (const a of rawAnnos) {
+        if (picked.length >= CAP_TOTAL) break;
+        if (!floorPick.has(a)) picked.push(a);
+      }
+      // 保持原文出现顺序，编号才连贯
+      annosPick = picked.slice(0, CAP_TOTAL)
+        .sort((x, y) => rawAnnos.indexOf(x) - rawAnnos.indexOf(y));
     } else {
       const buckets = new Map();
       for (let p = 1; p <= PAGES; p++) buckets.set(p, []);
       rawAnnos.forEach(a => buckets.get(pageOf(a)).push(a));
 
       /* 按页配额：
+       * 0) 类型保底优先：floorPick 里的（润色/好句/删改等）必须优先占位，
+       *    否则每页前若干条全被 err 占满，润色会被系统性挤掉；
        * 1) 每页先保底 CAP_MIN_PAGE 条；某页本身就不足这么多，有多少取多少；
-       * 2) 剩余名额优先补给「条数少的页」，让各页尽量均衡，
-       *    而不是让第 1 页把总名额吃光（这正是原来第 2、3 页没批注的原因）；
+       * 2) 剩余名额优先补给「条数少的页」，让各页尽量均衡；
        * 3) 全部页内都取完了还有空额，才允许前面的页继续加。 */
       const quota = new Map();
       for (let p = 1; p <= PAGES; p++) quota.set(p, 0);
 
-      // 第 1 步：保底
+      // 第 0 步：先把类型保底的批注占进各自页的名额
       let used = 0;
+      const floorByPage = new Map();
+      for (let p = 1; p <= PAGES; p++) floorByPage.set(p, []);
+      rawAnnos.forEach(a => {
+        if (!floorPick.has(a)) return;
+        const p = pageOf(a);
+        if (floorByPage.get(p).length >= CAP_TOTAL - used) return;
+        floorByPage.get(p).push(a);
+      });
       for (let p = 1; p <= PAGES; p++) {
-        const b = buckets.get(p);
-        const take = Math.min(CAP_MIN_PAGE, b.length, CAP_TOTAL - used);
+        const want = floorByPage.get(p).length;
+        const take = Math.min(want, CAP_TOTAL - used);
         quota.set(p, take);
         used += take;
+      }
+
+      // 第 1 步：保底（保底名额已含在配额里，只补差额）
+      for (let p = 1; p <= PAGES; p++) {
+        const b = buckets.get(p);
+        const need = Math.min(CAP_MIN_PAGE, b.length);
+        if (quota.get(p) < need && used < CAP_TOTAL) {
+          const add = Math.min(need - quota.get(p), CAP_TOTAL - used);
+          quota.set(p, quota.get(p) + add);
+          used += add;
+        }
       }
       // 第 2 步：均衡补足（每轮给当前最少的那几页各加 1 条）
       let guard = 0;
@@ -506,11 +681,22 @@ ${dims}
         used++;
       }
 
-      // 第 3 步：按配额取，页码顺序输出
+      // 第 3 步：按配额取——先放该页的类型保底，再按顺序补足，最后还原原文顺序
       annosPick = [];
       for (let p = 1; p <= PAGES; p++) {
         const b = buckets.get(p);
-        annosPick = annosPick.concat(b.slice(0, quota.get(p)));
+        const q = quota.get(p);
+        if (!q) continue;
+        const floorSet = new Set(floorByPage.get(p));
+        const take = [];
+        b.forEach(a => { if (floorSet.has(a) && take.length < q) take.push(a); });
+        for (const a of b) {
+          if (take.length >= q) break;
+          if (!floorSet.has(a) && !take.includes(a)) take.push(a);
+        }
+        // 还原到该页内的原始出现顺序
+        take.sort((x, y) => b.indexOf(x) - b.indexOf(y));
+        annosPick = annosPick.concat(take);
       }
     }
     /* 坐标换算：
@@ -539,7 +725,20 @@ ${dims}
 
     // 页码先算好，编号按「页内顺序」排，保证每一页的编号都从 1 开始且连贯
     const seqOfPage = new Map();
-    const annos = annosPick.map((a, i) => {
+    /* 最终去重：同一处引文、同一类型只保留一条批注。
+     * 模型有时会把同一句话分别用 err 和 polish 点评一遍，学生看到两条指向同一句的意见
+     * 会觉得重复；但「同一句的润色」和「同一句的挑错」视角不同，属于合理并存，
+     * 所以去重键带上类型，避免把不同角度的意见误删。 */
+    const seenQuote = new Set();
+    const dedup = [];
+    annosPick.forEach(a => {
+      const q = String(a.quote || '').replace(/\s/g, '').slice(0, 20);
+      const k = q ? (a.type + '|' + q) : '';
+      if (k && seenQuote.has(k)) return;
+      if (k) seenQuote.add(k);
+      dedup.push(a);
+    });
+    const annos = dedup.map((a, i) => {
       const rect = validRect(a);
       const located = a.located !== false && !!rect;
       const pg = Math.max(1, Math.min(PAGES, parseInt(a.page, 10) || 1));

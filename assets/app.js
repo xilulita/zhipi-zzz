@@ -1462,7 +1462,7 @@
           <div class="bp-body">
             <div class="bp-t">${esc(n.title)}</div>
             ${n.desc ? `<div class="bp-d">${esc(n.desc)}</div>` : ''}
-            <div class="bp-time">${esc(fmtClock(Date.now() - n.at))}前</div>
+            <div class="bp-time">${esc(fmtStamp(n.at))}</div>
           </div></div>`).join('')
           : '<div class="bp-empty">暂无消息</div>'}
       </div>`;
@@ -3585,6 +3585,28 @@
     const p = n => String(n).padStart(2, '0');
     const same = d.toDateString() === now.toDateString();
     return (same ? '今天 ' : `${d.getMonth() + 1}月${d.getDate()}日 `) + `${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  /* 消息与历史记录的时间：显示记录当时的真实时刻，不用「多久之前」的相对说法。
+   *   今天      → 今天 14:30
+   *   昨天      → 昨天 14:30
+   *   今年其他  → 3月5日 14:30
+   *   往年      → 2025年3月5日 14:30 */
+  function fmtStamp(ts) {
+    const d = new Date(Number(ts) || Date.now());
+    if (isNaN(d.getTime())) return '';
+    const now = new Date();
+    const p = n => String(n).padStart(2, '0');
+    const hm = `${p(d.getHours())}:${p(d.getMinutes())}`;
+    const sameDay = (a, b) => a.getFullYear() === b.getFullYear()
+      && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (sameDay(d, now)) return `今天 ${hm}`;
+    const y = new Date(now.getTime() - 86400000);
+    if (sameDay(d, y)) return `昨天 ${hm}`;
+    if (d.getFullYear() === now.getFullYear()) {
+      return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+    }
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
   }
 
   function openHistory() {
