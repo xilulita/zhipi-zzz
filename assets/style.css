@@ -127,8 +127,11 @@ textarea.input{height:auto;padding:8px 10px;resize:none;line-height:1.65;min-hei
 .collapse > .ch .ttl{font-size:12px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .collapse > .ch .arw{transition:.25s;color:var(--ink-4)}
 .collapse.open > .ch .arw{transform:rotate(180deg)}
-.collapse > .cb{max-height:0;overflow:hidden;transition:max-height .32s ease}
-.collapse.open > .cb{max-height:none;overflow:visible}
+/* 折叠动画：max-height 从 0 到一个足够大的固定值才能产生过渡，
+   之前写 max-height:none 无法插值，所以展开是「瞬间跳出」没有动效。 */
+.collapse > .cb{max-height:0;overflow:hidden;opacity:0;
+  transition:max-height .32s cubic-bezier(.4,0,.2,1),opacity .24s ease}
+.collapse.open > .cb{max-height:1200px;opacity:1;overflow:visible}
 .collapse .inner{padding:0 12px 12px}
 
 /* 四维权重 */
@@ -198,8 +201,8 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .sheet{position:relative;margin:0 auto;display:flex;gap:0;justify-content:center;align-items:flex-start;
   min-height:100%;width:fit-content;max-width:100%}
 .margin-col{width:230px;flex:0 0 230px;padding-top:0;display:flex;flex-direction:column;gap:8px;position:relative}
-.margin-col.left{padding-right:8px}
-.margin-col.right{padding-left:8px}
+.margin-col.left{padding-right:0;margin-right:8px}
+.margin-col.right{padding-left:0;margin-left:8px}
 .paper{width:584px;flex:0 0 584px;background:var(--paper);border-radius:6px;position:relative;
   box-shadow:0 1px 3px rgba(20,23,45,.07),0 12px 40px rgba(20,23,45,.11);
   padding:56px 52px 64px;min-height:760px}
@@ -245,13 +248,11 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .anno.good .lb{color:var(--green);background:#eaf7f1}
 .anno.dele .lb{color:var(--purple);background:#f3ecfd}
 .anno.hidden{opacity:0;pointer-events:none}
-.anno-row{position:relative;display:flex}
-.anno-row.left{justify-content:flex-end;padding-right:6px}
-.anno-row.left .anno::after{content:"";position:absolute;right:-12px;top:14px;width:12px;height:1px;
-  background:var(--line-2)}
-.anno-row.right{justify-content:flex-start;padding-left:6px}
-.anno-row.right .anno::after{content:"";position:absolute;left:-12px;top:14px;width:12px;height:1px;
-  background:var(--line-2)}
+/* 注意：.anno-row 的定位与卡片宽度由 board.css / app.js 统一控制，
+   这里不再定义 position/padding，避免影响卡片的定位基准。
+   旧的 .anno::after 连接短线已移除——它用 right:-12px 向外伸出，
+   会撑大列的 scrollWidth，导致白板出现横向滚动条；
+   卡片与划线之间的连线现在统一由 SVG 引线绘制。 */
 .anno-row .anno{max-width:212px}
 
 /* 空状态 */
@@ -477,6 +478,29 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
   align-items:center;gap:8px;backdrop-filter:blur(8px)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 
+/* 二次确认弹窗（重复批改等） */
+.cf-mask{position:fixed;inset:0;z-index:300;display:grid;place-items:center;
+  background:rgba(20,23,45,.34);backdrop-filter:blur(3px);
+  animation:cfFade .18s ease}
+.cf-mask[hidden]{display:none}
+@keyframes cfFade{from{opacity:0}to{opacity:1}}
+.cf-box{width:min(400px,calc(100vw - 48px));background:#fff;border-radius:16px;
+  box-shadow:0 20px 60px rgba(20,23,45,.24);padding:20px 20px 16px;
+  animation:cfPop .2s cubic-bezier(.34,1.36,.64,1)}
+@keyframes cfPop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.cf-hd{font-size:14.5px;font-weight:700;color:var(--ink);margin-bottom:10px}
+.cf-bd{font-size:12.5px;line-height:1.7;color:var(--ink-2,#5a5f6e)}
+.cf-bd b{color:var(--ink);font-weight:600}
+.cf-tip{margin-top:10px;padding:9px 11px;border-radius:9px;background:#fff8ec;
+  border:1px solid #f7e6c6;color:#9a6b1e;font-size:11.5px;line-height:1.6}
+.cf-ft{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}
+.cf-btn{height:34px;padding:0 16px;border-radius:9px;font-size:12.5px;font-weight:600;
+  cursor:pointer;border:1px solid transparent;transition:.16s}
+.cf-btn.ghost{background:#f5f6fa;color:var(--ink-2,#5a5f6e);border-color:#e8ebf2}
+.cf-btn.ghost:hover{background:#eef0f6}
+.cf-btn.danger{background:#e2554f;color:#fff;box-shadow:0 4px 14px rgba(226,85,79,.28)}
+.cf-btn.danger:hover{background:#d24742}
+
 /* 备注浮层 */
 .popover{position:absolute;z-index:60;background:#fff;border-radius:12px;box-shadow:var(--shadow-l);
   padding:10px;width:220px;border:1px solid var(--line)}
@@ -673,9 +697,11 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 
 .chico{width:16px;height:16px;flex:0 0 16px;display:grid;place-items:center;color:#7c7fd6}
 
-/* 批注列间距统一收紧 */
-.margin-col.left{padding-right:12px!important}
-.margin-col.right{padding-left:12px!important}
+/* 批注列间距统一收紧：用 margin 而不是 padding。
+   padding 会让绝对定位卡片的 right:0 参照 padding box，导致 scrollWidth
+   比 clientWidth 多出十几像素，白板因此出现横向滚动条；margin 不参与内容盒计算。 */
+.margin-col.left{padding-right:0!important;margin-right:12px}
+.margin-col.right{padding-left:0!important;margin-left:12px}
 
 /* 右栏演示作文卡片：可点击 */
 .demo-note.clickable{cursor:pointer;transition:.2s;position:relative}
@@ -1173,6 +1199,9 @@ canvas-wrap img{-webkit-user-drag:none}
 .side-scroll > .field{margin-bottom:14px!important}
 .side-scroll > .collapse,
 .side-scroll > .ai-deploy{margin-bottom:10px!important}
+/* 折叠面板在纵向 flex 容器里必须不可收缩，否则展开后会被压回容器高度，
+   侧栏永远没有滚动空间（表现为展开后内容挤在一起、也不会自动向下滚动）。 */
+.side-scroll > .collapse{flex:0 0 auto!important}
 .drop{border-radius:12px!important}
 
 /* 上传稿：画板内垂直居中 */

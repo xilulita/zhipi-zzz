@@ -10,10 +10,14 @@
 .anno-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;overflow:visible}
 
 .margin-col{flex:0 0 auto;display:block;position:relative;padding:0}
-.margin-col.left{padding-right:18px}
-.margin-col.right{padding-left:18px}
-/* 列高与纸张一致，卡片永不越界；超出时卡片内部滚动 */
-.margin-col{overflow:visible}
+.margin-col.left{padding-right:0;margin-right:18px}
+.margin-col.right{padding-left:0;margin-left:18px}
+/* 列高跟随内容（JS 控制 height），纵向不裁切：批注多时向下延伸。
+   横向问题：绝对定位的卡片 right:0 以「padding box」为基准，会让 scrollWidth
+   比 clientWidth 多出一截，白板就冒出横向滚动条。
+   用 overflow:clip 只裁视觉、不影响布局，也不像 hidden 那样强行变成滚动容器。
+   （clip-margin 支持时一并使用，旧内核回落到 clip 本身即可） */
+.margin-col{overflow:clip}
 /* 关键：外层行不参与定位。
    style.css 里旧的 .anno-row{position:relative;display:flex} 会让每个行盒成为
    独立定位基准，卡片 top 就相对各自行盒计算，结果全部叠在一起。

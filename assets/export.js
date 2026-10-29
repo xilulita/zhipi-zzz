@@ -291,7 +291,7 @@
   .drill .t em{font-style:normal;font-size:10.9px;color:#8a90a0;margin-left:5px;font-weight:500}
   .drill .iss{font-size:10.9px;color:#b8730a;background:#fff8ec;border-radius:6px;
     padding:3px 8px;margin-bottom:7px;display:inline-block;line-height:1.5}
-  /* 三行色块：存在的问题（橙）/ 思路（绿）/ 例子（蓝） */
+  /* 三行色块：问题（橙）/ 思路（绿）/ 例子（蓝） */
   .drill .r{font-size:11.3px;line-height:1.72;color:#4a4d57;display:flex;gap:8px;
     align-items:flex-start;border-radius:7px;padding:7px 10px;margin-bottom:6px}
   .drill .r .kk{flex:0 0 auto;font-size:9.4px;font-weight:800;
@@ -761,7 +761,7 @@ function hexA(hex, a) {
       <b>${i + 1}. ${esc(it.title)}</b><span class="sev">${it.sev === 'high' ? '重要' : it.sev === 'mid' ? '中等' : '轻微'}</span>
       <div style="margin-top:4px">${esc(it.desc)}</div>
       ${it.ex ? `<div class="ex">${it.ex}</div>` : ''}</div>`).join('');
-    return `<div class="sec">存在问题</div>${iss}`;
+    return `<div class="sec">问题</div>${iss}`;
   }
 
   /* ================= 写作思路 =================
@@ -940,12 +940,12 @@ function hexA(hex, a) {
   function secDrills(o) {
     const list = o.drills || [];
     if (!list.length) return '';
-    // 卡片结构对齐参考排版：存在的问题（橙）/ 思路（绿）/ 例子（蓝）
+    // 卡片结构对齐参考排版：问题（橙）/ 思路（绿）/ 例子（蓝）
     return `<div class="sec">小练笔<span class="tag">针对本文薄弱点</span></div>
       ${list.map((b, i) => `<div class="drill">
         <div class="h"><span class="n">${i + 1}</span><span class="t">${esc(b.key)}<em>· ${esc(b.focus)}</em></span></div>
         ${b.related ? `<div class="iss">对应问题：${esc(b.related)}</div>` : ''}
-        <div class="r prob"><span class="kk">存在的问题</span><span>${esc(b.issue || '')}</span></div>
+        <div class="r prob"><span class="kk">问题</span><span>${esc(b.issue || '')}</span></div>
         <div class="r idea"><span class="kk">思路</span><span>${esc(b.idea || '')}</span></div>
         <div class="r demo"><span class="kk">例子</span><span>${esc(b.demo || '')}</span></div>
       </div>`).join('')}`;

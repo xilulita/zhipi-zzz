@@ -964,7 +964,14 @@
       col.style.minHeight = colH + 'px';
       const items = annos.filter(a => a.side === side).map(a => {
         const el = col.querySelector(`.anno[data-a="${a.id}"]`);
-        if (el) { el.style.position = 'absolute'; el.style.left = '0'; el.style.right = '0'; }
+        // 卡片宽度严格等于列的内容盒宽度，不受任何 padding 影响，避免出现横向溢出。
+        if (el) {
+          el.style.position = 'absolute';
+          el.style.left = '0';
+          el.style.right = 'auto';
+          el.style.width = '100%';
+          el.style.boxSizing = 'border-box';
+        }
         return { a, el };
       }).filter(x => x.el)
         // 排序键先做数值兜底：未定位批注的 y/x 可能是 null，直接相减会得到 NaN 导致排序错乱
@@ -994,107 +1001,74 @@
           anchor: colH * anchorRatio
         };
       });
-
       const totalH = placed.reduce((sum, it) => sum + it.h, 0) + GAP * Math.max(0, placed.length - 1);
 
-      /* 二、排布策略
-       * 铁律：卡片必须全部落在「纸张高度」范围内，绝不允许撑出白板。
+      /* 二、排布策略（重写）
        *
-       * 情况 A：卡片总高 ≤ 纸张高度 → 中心对齐各自划线，再自上而下消重叠。
-       * 情况 B：卡片总高 > 纸张高度 → 空间不够，按「等分区间」压缩排布：
-       *           把纸张高度按卡片数量切成等分，每张卡落在自己区间的起点，
-       *           并把每张卡的最大可用高度限制为「等分高度」，超出部分内部滚动。
-       *           这样卡片一定在纸高范围内，也不会互相重叠。 */
-      if (totalH <= colH) {
-        // 情况 A：贴住划线
-        placed.forEach(it => {
-          let top = (typeof it.a.cardTop === 'number')
-            ? it.a.cardTop
-            : Math.max(PAD_TOP, it.anchor - it.h / 2);
-          it.top = Math.min(top, Math.max(PAD_TOP, colH - it.h));
-        });
-        placed.sort((x, y) => x.top - y.top);
-        let cursor = PAD_TOP;
-        placed.forEach(it => {
-          it.top = Math.max(it.top, cursor);
-          cursor = it.top + it.h + GAP;
-        });
-        /* 底部溢出则整体上推。
-         * 旧实现从后往前逐个“试着上推”，但用的是已经被改动过的
-         * placed[i-1].top 做下界，结果间距被算错、卡片互相压住。
-         * 改为：先算出总溢出量，再整体平移，最后做一次从头开始的
-         * 正向消重叠（下界始终取「上一张已定稿的底边」）。 */
-        const overflow = cursor - GAP - colH;
-        if (overflow > 0) {
-          placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - overflow); });
-          // 正向重排，确保相邻卡片之间至少留 GAP
+       * 目标：优先贴着对应划线排布，不压缩卡片；只有真的放不下时才向下延伸。
+       *
+       *   1) 先按「贴住各自锚点」放置（中心对齐划线）；
+       *   2) 自上而下消重叠，卡片始终按自然高度显示，**不压缩、不加内部滚动条**；
+       *   3) 若排完超出纸张底部：
+       *        - 空间确实不够（总高 > 纸高）→ 列高跟着内容向下延伸，
+       *          让多出来的卡片自然排到纸面下方，而不是把每张卡压扁；
+       *        - 只是个别卡片贴得太靠下 → 先把整体往上收，仍以不重叠为前提。
+       *   4) 列高 = max(纸张高度, 内容实际高度)，既保证和纸面对齐，
+       *      又允许内容超出时向下长出来。
+       */
+      // 步骤 1：先按锚点放置（中心对齐划线）
+      placed.forEach(it => {
+        it.top = (typeof it.a.cardTop === 'number')
+          ? it.a.cardTop
+          : it.anchor - it.h / 2;
+        it.top = Math.max(PAD_TOP, it.top);
+      });
+
+      // 步骤 2：自上而下消重叠（按当前 top 排序，保持视觉顺序）
+      placed.sort((x, y) => x.top - y.top);
+      let cursor = PAD_TOP;
+      placed.forEach(it => {
+        it.top = Math.max(it.top, cursor);
+        cursor = it.top + it.h + GAP;
+      });
+
+      const contentH = cursor - GAP;              // 排完后内容的真实底边
+      const colFillH = Math.max(colH, contentH);  // 列高：至少和纸一样高，放不下就向下延伸
+
+      /* 步骤 3：如果只是「贴太靠下」导致溢出，而整体其实放得下（totalH <= colH），
+       * 就把整列整体上移，让内容收回纸张范围内——这种情况不该向下延伸。 */
+      if (contentH > colH && totalH <= colH) {
+        const shift = Math.min(contentH - colH, placed.length ? placed[0].top - PAD_TOP : 0);
+        if (shift > 0) {
+          placed.forEach(it => { it.top -= shift; });
+          // 上移后重新正向消重叠，保证不重叠
           let c2 = PAD_TOP;
           placed.forEach(it => {
             it.top = Math.max(it.top, c2);
             c2 = it.top + it.h + GAP;
           });
-          // 若重排后又超出底部，把整列压缩到纸高之内
-          const over2 = c2 - GAP - colH;
-          if (over2 > 0) {
-            const n = placed.length;
-            const shrink = over2 / Math.max(1, n);
-            placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - shrink); });
-            let c3 = PAD_TOP;
-            placed.forEach(it => {
-              it.top = Math.max(it.top, c3);
-              c3 = it.top + it.h + GAP;
-            });
-          }
-        }
-      } else {
-        /* 情况 B：空间确实不够
-         * 不再撑高整列（那是卡片跑到白板外面的元凶），
-         * 改为把纸张高度等分，每张卡独占一个区间，超出部分由最终兜底做卡内滚动。 */
-        placed.sort((x, y) => (x.anchor - y.anchor) || (x.h - y.h));
-        const slots = placed.length;
-        const slotH = Math.max(40, (colH - PAD_TOP - GAP * (slots - 1)) / slots);
-        placed.forEach((it, i) => {
-          it.top = PAD_TOP + i * (slotH + GAP);
-        });
-        // 确定性收尾：正向重排一遍，保证不重叠且不越过纸张底边
-        let cB = PAD_TOP;
-        placed.forEach(it => {
-          it.top = Math.max(it.top, cB);
-          cB = it.top + Math.min(it.h, slotH) + GAP;
-        });
-        const overB = cB - GAP - colH;
-        if (overB > 0) {
-          const shift = overB / Math.max(1, placed.length);
-          placed.forEach(it => { it.top = Math.max(PAD_TOP, it.top - shift); });
-          let cB2 = PAD_TOP;
-          placed.forEach(it => {
-            it.top = Math.max(it.top, cB2);
-            cB2 = it.top + Math.min(it.h, slotH) + GAP;
-          });
         }
       }
 
-      /* 统一兜底：无论哪种情况，卡片几何边界都不许越出纸张 */
-      const clampTop = top => Math.max(PAD_TOP, Math.min(top, Math.max(PAD_TOP, colH - 24)));
+      // 步骤 4：写回位置——卡片保持自然高度，不再压缩
       placed.forEach(it => {
-        it.top = clampTop(it.top);
+        it.top = Math.max(PAD_TOP, it.top);
         it.el.style.top = Math.round(it.top) + 'px';
-        // 只在「自然高度确实会超出剩余空间」时才压缩，避免无谓地改高度、
-        // 让下一轮测量拿到的尺寸偏离真实值。
-        const avail = Math.max(48, colH - it.top - 2);
-        if (it.h > avail + 1) {
-          it.el.style.maxHeight = Math.floor(avail) + 'px';
-          it.el.style.overflowY = 'auto';
-        } else {
-          it.el.style.maxHeight = '';
-          it.el.style.overflowY = '';
-        }
+        it.el.style.maxHeight = '';
+        it.el.style.overflowY = '';
         it.a._cardTop = it.top;
       });
-      // 列本身永远不撑高，跟着纸张走
-      col.style.minHeight = colH + 'px';
-      col.style.height = colH + 'px';
+
+      /* 步骤 5：列高跟随内容。内容超出纸面时向下延伸，
+       * 这样多出来的批注排在作文纸下方，既不压缩也不被裁掉。 */
+      const finalH = Math.max(colH, (() => {
+        const last = placed[placed.length - 1];
+        return last ? last.top + last.h : 0;
+      })());
+      col.style.height = finalH + 'px';
+      col.style.minHeight = finalH + 'px';
       col.style.overflow = 'visible';
+      col.dataset.overflow = finalH > colH + 1 ? '1' : '0';
     });
 
     drawConnectors();
@@ -1746,9 +1720,60 @@
     if (!(cur0.gradeId || state.gradeId)) {
       toast('请先选择年级'); openGradeMenu(); return;
     }
-    if (cur0.result) { toast('这份已批改完成，可添加下一份继续'); return; }
+    // 已批改完成：允许重新批改，但先二次确认，避免手滑覆盖已有结果
+    if (cur0.result) {
+      const ok = await askConfirmRerun(cur0);
+      if (!ok) return;
+    }
     // 只批改当前这一份；每份各自独立，互不阻塞
     await gradeDoc(cur0);
+  }
+
+  /* 重复批改二次确认：返回 Promise<boolean> */
+  function askConfirmRerun(d) {
+    return new Promise(resolve => {
+      const mask = $('#cfMask');
+      const body = $('#cfBody');
+      const okBtn = $('#cfOk');
+      const cancelBtn = $('#cfCancel');
+      if (!mask || !body || !okBtn || !cancelBtn) { resolve(true); return; }
+
+      const title = (d && (d.note || d.name)) || '这篇作文';
+      const score = d && d.result && d.result.score ? `当前得分 <b>${d.result.score.total}</b> 分，` : '';
+      body.innerHTML = `「<b>${esc(String(title).slice(0, 20))}</b>」已经批改过了。<br>` +
+        `${score}重新批改会用新的结果<b>覆盖</b>现有的批注、评分和报告。`;
+      const tip = document.createElement('div');
+      tip.className = 'cf-tip';
+      tip.textContent = '原结果不会保留，如果还想对照旧版本，建议先导出当前报告。';
+      body.appendChild(tip);
+
+      let settled = false;
+      const cleanup = () => {
+        mask.hidden = true;
+        okBtn.onclick = null;
+        cancelBtn.onclick = null;
+        mask.onclick = null;
+        document.removeEventListener('keydown', onKey, true);
+      };
+      const finish = v => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(v);
+      };
+      const onKey = e => {
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      };
+
+      okBtn.onclick = e => { e.stopPropagation(); finish(true); };
+      cancelBtn.onclick = e => { e.stopPropagation(); finish(false); };
+      mask.onclick = e => { if (e.target === mask) finish(false); };
+      document.addEventListener('keydown', onKey, true);
+
+      mask.hidden = false;
+      setTimeout(() => okBtn.focus(), 60);
+    });
   }
 
   function makeResult(d) {
@@ -2402,7 +2427,7 @@
         </div>
         ${b.relatedTitle ? `<div class="dc-issue">对应问题：${esc(b.relatedTitle)}</div>`
           : (b.relatedFallback ? `<div class="dc-issue">本项针对：${esc(b.relatedFallback)}</div>` : '')}
-        <div class="dc-row dc-prob"><span class="dc-k">存在的问题</span><span class="dc-v">${esc(b.issue)}</span></div>
+        <div class="dc-row dc-prob"><span class="dc-k">问题</span><span class="dc-v">${esc(b.issue)}</span></div>
         <div class="dc-row dc-idea"><span class="dc-k">思路</span><span class="dc-v">${esc(b.idea)}</span></div>
         <div class="dc-row dc-demo"><span class="dc-k">例子</span><span class="dc-v">${esc(b.demo)}</span></div>
       </div>`).join('')}
@@ -2716,7 +2741,25 @@
     const scrollBox = $('.side-scroll');
     if (aiBox && aiBox.parentElement === scrollBox) scrollBox.insertBefore(collapse, aiBox);
     else scrollBox.appendChild(collapse);
-    collapse.querySelector('.ch').onclick = () => collapse.classList.toggle('open');
+    // 四维评分展开/收起：与「AI 部署」保持一致的动效——
+    // 展开后自动平滑滚动，让内容完整进入可视区，而不是停在半截需要手滑
+    collapse.querySelector('.ch').onclick = () => {
+      const willOpen = !collapse.classList.contains('open');
+      collapse.classList.toggle('open');
+      if (willOpen) {
+        setTimeout(() => {
+          const sc = document.querySelector('.side-scroll');
+          if (!sc) return;
+          // 用 rect 差值算相对滚动容器的偏移，比 offsetTop 可靠
+          // （offsetTop 参照的是最近的定位祖先，未必是滚动容器）
+          const scRect = sc.getBoundingClientRect();
+          const cRect = collapse.getBoundingClientRect();
+          const target = sc.scrollTop + (cRect.top - scRect.top) - 8;
+          const maxTop = Math.max(0, sc.scrollHeight - sc.clientHeight);
+          sc.scrollTo({ top: Math.max(0, Math.min(target, maxTop)), behavior: 'smooth' });
+        }, 90);
+      }
+    };
     state.collapseOpen = true;
 
     renderGenres(); renderGrades(); renderWeights(); renderTabs(); renderCanvas(); renderReport();

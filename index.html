@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>智批作文 · AI 作文智能批改</title>
-<link rel="stylesheet" href="assets/style.css?v=1793291704">
-<link rel="stylesheet" href="assets/board.css?v=1793291704">
-<link rel="stylesheet" href="assets/drill.css?v=1793291704">
+<link rel="stylesheet" href="assets/style.css?v=1793293019">
+<link rel="stylesheet" href="assets/board.css?v=1793293019">
+<link rel="stylesheet" href="assets/drill.css?v=1793293019">
 <style>
 /* ===== 网页版启动画面（首帧内联，避免白屏闪烁） ===== */
 #zp-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
@@ -277,9 +277,21 @@
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="assets/data.js?v=1793291704"></script>
-<script src="assets/export.js?v=1793291704"></script>
-<script src="assets/ai.js?v=1793291704"></script>
-<script src="assets/app.js?v=1793291704"></script>
+<!-- 二次确认弹窗：重复批改等需要用户明确同意的操作 -->
+<div class="cf-mask" id="cfMask" hidden>
+  <div class="cf-box" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+    <div class="cf-hd" id="cfTitle">确认重复批改</div>
+    <div class="cf-bd" id="cfBody"></div>
+    <div class="cf-ft">
+      <button class="cf-btn ghost" id="cfCancel">取消</button>
+      <button class="cf-btn danger" id="cfOk">确定重新批改</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/data.js?v=1793293019"></script>
+<script src="assets/export.js?v=1793293019"></script>
+<script src="assets/ai.js?v=1793293019"></script>
+<script src="assets/app.js?v=1793293019"></script>
 </body>
 </html>
