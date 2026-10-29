@@ -896,14 +896,24 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .tabs-empty{font-size:11.5px;color:#b4b9c4;padding-left:4px}
 
 /* 顶部标签行：高度、渐隐提示、滚动条更清晰 */
-.stage-bar{height:54px!important;flex-basis:54px!important}
-.file-tabs{position:relative;padding:4px 18px 4px 0!important;
+.stage-bar{height:54px!important;flex-basis:54px!important;overflow:hidden!important}
+/* 标签栏严格限制在 stage-bar 内：不设限制时超出的标签会画到右侧工具栏上，
+   看起来"能看见"，实际点击落点在工具栏（z-index 更高），删除叉号就会点不动。 */
+.file-tabs{position:relative;z-index:6;padding:4px 18px 4px 0!important;
+  overflow-x:auto!important;overflow-y:hidden!important;
+  max-width:100%;min-width:0;flex:1 1 0;
+  scrollbar-color:#c9cfdd #f2f4f8;
+  scrollbar-width:thin;
   -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent 100%)!important;
   mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent 100%)!important}
-.file-tabs::-webkit-scrollbar{height:6px}
+/* 滚动条常显：标签多到溢出时，用户能一眼看出右侧还有标签可滚动查看 */
+.file-tabs::-webkit-scrollbar{height:6px;display:block!important;background:#f2f4f8}
+.file-tabs::-webkit-scrollbar-track{background:#f2f4f8;border-radius:3px}
 .file-tabs::-webkit-scrollbar-thumb{background:#c9cfdd;border-radius:9px;border:1px solid #fff;background-clip:padding-box}
 .file-tabs::-webkit-scrollbar-thumb:hover{background:#aeb6c8;background-clip:padding-box}
-.ftab{padding:7px 10px!important;min-height:28px}
+.ftab{padding:7px 10px!important;min-height:28px;position:relative;z-index:1}
+/* 删除叉号：可见、热区明确，且永远压在标签内容之上 */
+.file-tabs .tab-x{z-index:5}
 
 /* 左栏编号徽标（唯一规则，覆盖全部） */
 .num-badge{

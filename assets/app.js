@@ -502,14 +502,47 @@
         ${(all.length > 1 || x.kind === 'hist') ? `<span class="tab-x" data-del="${x.key}" title="删除这份">&times;</span>` : '<span class="tab-x lock" title="需保留一份"></span>'}
       </button>`).join('');
 
-    // 删除按钮：改为容器级事件委托，renderTabs 重建 DOM 也不会丢绑定
-    if (!t.dataset.delBound) {
-      t.dataset.delBound = '1';
-      t.addEventListener('click', e => {
-        const x = e.target.closest('.tab-x');
+    // 删除按钮：容器级事件委托，renderTabs 重建 DOM 也不会丢绑定。
+    // 删除按钮：document 级事件委托。
+    // 为什么挂 document 而不是容器：标签多时内容会横向溢出，部分叉号落在
+    // 右侧工具栏之下（z-index 更高），事件根本到不了容器，只能从顶层拦截。
+    // 判定除了 e.target，还会按坐标做几何兜底，被遮挡也能命中。
+    if (!document.documentElement.dataset.tabDelBound) {
+      document.documentElement.dataset.tabDelBound = '1';
+
+      const hitTabX = (ev) => {
+        const t2 = document.querySelector('#fileTabs');
+        if (!t2) return null;
+        // 1) 常规：直接命中的元素
+        const direct = ev.target && ev.target.closest ? ev.target.closest('.tab-x') : null;
+        // 只有在标签栏内的叉号才算，避免误伤别处的 .tab-x
+        if (direct && t2.contains(direct)) return direct;
+        // 2) 兜底：按坐标找标签栏内的叉号（热区四周各放宽 6px）
+        const pad = 6;
+        const tabs = Array.from(t2.querySelectorAll('.ftab'));
+        for (const tab of tabs) {
+          const x = tab.querySelector('.tab-x');
+          if (!x) continue;
+          const xr = x.getBoundingClientRect();
+          if (!xr.width) continue;
+          if (ev.clientX >= xr.left - pad && ev.clientX <= xr.right + pad
+            && ev.clientY >= xr.top - pad && ev.clientY <= xr.bottom + pad) {
+            return x;
+          }
+        }
+        return null;
+      };
+
+      const doDelete = (x, ev) => {
         if (!x) return;
-        e.stopPropagation();
-        e.preventDefault();
+        ev.stopPropagation();
+        ev.preventDefault();
+        // 标记本次交互已被删除逻辑消费，避免随后的 click 又切换标签
+        const t2 = document.querySelector('#fileTabs');
+        if (t2) {
+          t2.dataset.delFired = '1';
+          setTimeout(() => { delete t2.dataset.delFired; }, 80);
+        }
         if (x.classList.contains('lock')) {
           toast('需保留一份，无法删除最后一份');
           return;
@@ -517,11 +550,25 @@
         const key = x.dataset.del || '';
         if (!key) return;
         const ci = key.indexOf(':');
+        if (ci < 0) return;
         removeItem(key.slice(0, ci), key.slice(ci + 1));
-      }, true);   // 捕获阶段先处理，避免被标签点击吞掉
+      };
+
+      // 用 pointerdown：比 click 更早，且不会被上层元素的 click 处理抢先
+      document.addEventListener('pointerdown', ev => {
+        const x = hitTabX(ev);
+        if (x) doDelete(x, ev);
+      }, true);
+
+      // keyboard / 无障碍：保留 click 兜底（detail===0 表示键盘触发）
+      document.addEventListener('click', ev => {
+        if (ev.detail === 0) doDelete(hitTabX(ev), ev);
+      }, true);
     }
 
     $$('#fileTabs .ftab').forEach(b => b.onclick = () => {
+      // 刚刚点的是删除叉号，这次 click 不再切换标签
+      if (t.dataset.delFired) return;
       const id = b.dataset.id, kind = b.dataset.kind;
       if (kind === 'doc') {
         state.activeId = id;
