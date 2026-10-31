@@ -2692,12 +2692,13 @@
 
   /* ================= 工具 ================= */
   let toastTimer;
-  function toast(msg) {
+  function toast(msg, ms) {
     const t = $('#toast');
     t.textContent = msg;
     t.classList.add('on');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('on'), 2200);
+    // 含路径等需要看清的提示可传更长的显示时间
+    toastTimer = setTimeout(() => t.classList.remove('on'), ms || 2200);
   }
 
   // 启动/重置为演示作文：白板显示《那一刻，我长大了》，带四色批注框，但报告未生成
@@ -2983,19 +2984,41 @@
       if (!d || !d.result) { toast('请先完成批改再导出'); return; }
       if (!window.ZPEXPORT) { toast('导出组件未加载'); return; }
       if (state.exporting) { toast('正在生成，请稍候'); return; }
-      const btn = $('#btnExportHTML');
+      const btnId = kind === 'pdf' ? '#btnExportPDF' : '#btnExportHTML';
+      const otherId = kind === 'pdf' ? '#btnExportHTML' : '#btnExportPDF';
+      const btn = $(btnId);
       const label = btn ? btn.querySelector('span') : null;
       const oldText = label ? label.textContent : '';
       const wasBusy = btn ? btn.classList.contains('busy') : false;
       state.exporting = true;
+      // 两个导出按钮互斥，避免同时触发两次渲染
+      const other = $(otherId);
+      if (other) other.disabled = true;
       // 只替换文字并加旋转图标，保持按钮尺寸稳定，避免文字被挤成竖排
       if (btn) { btn.disabled = true; btn.classList.add('busy'); }
       if (label) label.textContent = '生成中';
       try {
         const o = buildExportData(d);
-        window.ZPEXPORT.exportHTML(o);
-        if (label) label.textContent = '已完成';
-        toast('HTML 已开始下载');
+        if (kind === 'pdf') {
+          const name = `智批作文专业版-${o.title || '批改报告'}`;
+          // 桌面版走原生 printToPDF（矢量文字、A4 分页）；网页版退回浏览器打印
+          if (window.ZPNATIVE && window.ZPNATIVE.exportPDF) {
+            const r = await window.ZPNATIVE.exportPDF(window.ZPEXPORT.buildDocument(o), name);
+            if (r && r.canceled) { toast('已取消导出'); }
+            else {
+              // 一键下载：直接落到系统「下载」目录，并告知文件名便于查找
+              toast(`PDF 已保存到下载文件夹：${(r && r.fileName) || name + '.pdf'}`, 4200);
+              if (label) label.textContent = '已保存';
+            }
+          } else {
+            window.ZPEXPORT.exportHTML(o, { autoPrint: true });
+            toast('已打开打印窗口，选择「另存为 PDF」即可');
+          }
+        } else {
+          window.ZPEXPORT.exportHTML(o);
+          toast('HTML 已开始下载');
+        }
+        if (label && label.textContent === '生成中') label.textContent = '已完成';
         await wait(700);
       } catch (e) {
         console.error(e);
@@ -3004,8 +3027,10 @@
         state.exporting = false;
         if (label) label.textContent = oldText;
         if (btn) { btn.disabled = false; btn.classList.toggle('busy', wasBusy); }
+        if (other) other.disabled = false;
       }
     };
+    const _pb = $('#btnExportPDF'); if (_pb) _pb.onclick = () => doExport('pdf');
     const _hb = $('#btnExportHTML'); if (_hb) _hb.onclick = () => doExport('html');
 
     // 快捷键

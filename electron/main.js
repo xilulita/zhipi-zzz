@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -87,7 +87,9 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webSecurity: true
+      webSecurity: true,
+      // 仅用于 PDF 导出：通过 contextBridge 暴露一个受限的 invoke
+      preload: path.join(__dirname, 'preload.js')
     }
   });
 
@@ -112,6 +114,72 @@ function createMainWindow() {
     }, 120);
   });
 }
+
+/* ===== PDF 导出 =====
+ * 用 Electron 自带的 printToPDF 渲染，而不是 html2canvas 截图：
+ * 截图式 PDF 是位图，文字放大会糊、也不能复制检索，A4 处还常把内容拦腰切断。
+ * printToPDF 输出矢量文字，配合导出文档里已有的 @media print 规则可获得
+ * 自然的 A4 分页。
+ */
+/* 直接下载：存到系统「下载」目录，文件名重名时自动加 (1)(2)，不弹保存框。
+ * 这样点一下按钮就落盘，符合「一键导出」的预期。 */
+function uniquePath(dir, base) {
+  let p = path.join(dir, base + '.pdf');
+  let i = 1;
+  while (fs.existsSync(p)) p = path.join(dir, `${base} (${i++}).pdf`);
+  return p;
+}
+
+async function exportPdf({ html, suggestName }) {
+  if (typeof html !== 'string' || html.length < 200) throw new Error('导出内容为空');
+  const safe = String(suggestName || '作文批改报告')
+    .replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 60) || '作文批改报告';
+
+  const dir = app.getPath('downloads');
+  const filePath = uniquePath(dir, safe);
+
+  // 隐藏窗口离屏渲染：不闪窗、不影响用户当前画面
+  const win = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 1200,
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+  });
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    // 等图片与字体就绪，否则首屏会是空白或半张图
+    await win.webContents.executeJavaScript(`
+      (async () => {
+        const imgs = [...document.images];
+        await Promise.all(imgs.map(i => i.complete ? Promise.resolve()
+          : new Promise(r => { i.onload = r; i.onerror = r; })));
+        if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+        return true;
+      })()
+    `, true);
+    await new Promise(r => setTimeout(r, 350));   // 给排版稳定留一点时间
+
+    const data = await win.webContents.printToPDF({
+      pageSize: 'A4',
+      printBackground: true,        // 背景色/圆角卡片/彩色表头都靠它
+      preferCSSPageSize: true,      // 尊重导出文档里的 @page 设置
+      margins: { marginType: 'default' }
+    });
+    fs.writeFileSync(filePath, data);
+    return { canceled: false, filePath, fileName: path.basename(filePath), dir };
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
+ipcMain.handle('zhipi:export-pdf', async (event, payload) => {
+  // 只接受来自主窗口的请求，且参数结构受限
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('非法来源');
+  }
+  const body = payload && typeof payload === 'object' ? payload : {};
+  return exportPdf({ html: body.html, suggestName: body.suggestName });
+});
 
 app.whenReady().then(() => {
   createSplash();

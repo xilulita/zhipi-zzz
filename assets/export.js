@@ -1046,12 +1046,28 @@ function hexA(hex, a) {
 
   @page{size:A4 portrait;margin:10mm}
   @media print{
+    /* 打印/导出 PDF：白底、去阴影，避免深色背景大面积耗墨 */
     body{background:#fff}
-    .doc{width:auto}
-    .blk{page-break-inside:auto}
+    .doc{width:auto;max-width:100%}
+    /* 允许内容自然续排：早期每个 .blk 都强制另起一页，导致上一页下半截
+     * 大片留白（实测第 1 页只用到 422/842pt）。封面之后其余区块顺排即可。 */
+    .blk{page-break-inside:auto;break-inside:auto}
     .blk.sec-cover{page-break-before:always}
-    .blk.sec-tab{page-break-before:always}
-    .board3{page-break-inside:avoid}
+    .blk.sec-tab{page-break-before:auto;break-before:auto}
+    .blk.sec-tab + .blk.sec-tab{margin-top:6mm}
+    /* 白板三栏是一个整体：整块不跨页，卡片绝不与纸张被切到两页 */
+    .board3{page-break-inside:avoid;break-inside:avoid}
+    .side-card{page-break-inside:avoid;break-inside:avoid}
+    /* 区块标题不要孤零零留在页尾 */
+    .sec{page-break-after:avoid;break-after:avoid}
+    /* 四维卡片、小练笔条目同理，单张不跨页 */
+    .dim,.li,.drill-item{page-break-inside:avoid;break-inside:avoid}
+    /* 纸张投影在纸面打印时没有意义，去掉更干净 */
+    .shot{box-shadow:none!important}
+    /* 链接不显示下划线与彩色，打印更接近纸面报告 */
+    a{color:inherit;text-decoration:none}
+    /* 隐藏不参与打印的交互元素 */
+    .tabbar{display:none!important}
   }
   ${EXPORT_CSS}
 </style></head>
@@ -1207,10 +1223,31 @@ function hexA(hex, a) {
   function buildDocument(o) { return buildLongDocument(o); }
 
   /* ---------- 导出 HTML ---------- */
-  function exportHTML(o) {
+  /* opts.autoPrint：网页版没有原生 PDF 能力时，打开文档后直接唤起打印，
+   * 由用户选择「另存为 PDF」；桌面版走主进程的 printToPDF，不会用到此分支。 */
+  function exportHTML(o, opts) {
     const html = buildDocument(o);
     const blob = new Blob(['\ufeff' + html], { type: 'text/html;charset=utf-8' });
-    dl(blob, `智批作文专业版-${safe(o.title)}.html`);
+    const name = `智批作文专业版-${safe(o.title)}.html`;
+
+    if (opts && opts.autoPrint) {
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (w) {
+        // 等文档与图片就绪再唤起打印，否则只能打出空白页
+        const fire = () => {
+          try { w.focus(); w.print(); } catch (e) { /* 用户可手动 Ctrl+P */ }
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        };
+        w.addEventListener('load', () => setTimeout(fire, 600), { once: true });
+        setTimeout(() => { if (!w.closed) fire(); }, 2500);
+      } else {
+        // 弹窗被拦截：退回下载，用户自行打开
+        dl(blob, name);
+      }
+      return;
+    }
+    dl(blob, name);
   }
 
   /* ---------- 工具 ---------- */
