@@ -4,6 +4,7 @@ package-lock.json.bak
 
 # 打包产物（体积大，不进源码仓库）
 dist/
+dist-build/
 out/
 
 # 系统与编辑器

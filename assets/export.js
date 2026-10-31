@@ -1210,7 +1210,7 @@ function hexA(hex, a) {
   function exportHTML(o) {
     const html = buildDocument(o);
     const blob = new Blob(['\ufeff' + html], { type: 'text/html;charset=utf-8' });
-    dl(blob, `智批作文-${safe(o.title)}.html`);
+    dl(blob, `智批作文专业版-${safe(o.title)}.html`);
   }
 
   /* ---------- 工具 ---------- */

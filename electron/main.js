@@ -11,13 +11,15 @@ const fs = require('fs');
  * 这里按 appId 的末段固定目录名：不同软件只要 appId 不同，数据天然隔离；
  * 同一软件升级时 appId 不变，历史记录不会迁移丢失。
  */
-const APP_ID = 'com.zhipi.zuowen';
+const APP_ID = 'com.zhipi.zuowen.desktop';
 const DATA_DIR = 'ZhipiZuowenDesktop';   // 稳定标识，勿随意改动，改了等于丢历史
 
 /* 迁移旧数据：老版本把数据放在 productName 目录下，升级后要能读回历史。
- * 只在目标目录还没有 Local Storage 时执行一次，避免覆盖用户的新数据。 */
+ * 只在目标目录还没有 Local Storage 时执行一次，避免覆盖用户的新数据。
+ * 注意：'智批作文' 是另一个软件的目录，若本机同时装了它，只会在本程序
+ * 首次启动且自身目录为空时复制一次，之后互不影响。 */
 function migrateLegacyData(targetDir) {
-  const candidates = ['智批作文', 'zhipi-zuowen-desktop'];
+  const candidates = ['智批作文专业版', '智批作文', 'zhipi-zuowen-desktop'];
   const targetLS = path.join(targetDir, 'Local Storage');
   try {
     if (fs.existsSync(targetLS) && fs.readdirSync(targetLS).length) return;  // 已有数据，不动
@@ -77,7 +79,7 @@ function createMainWindow() {
     minWidth: 1200,
     minHeight: 760,
     show: false,
-    title: '智批作文',
+    title: '智批作文专业版',
     backgroundColor: '#f5f6fa',
     icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     autoHideMenuBar: true,
