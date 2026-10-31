@@ -1413,6 +1413,10 @@ canvas-wrap img{-webkit-user-drag:none}
 .rc-v{flex:0 0 30px;text-align:right;font-size:9.2px;color:#8b90a0;font-variant-numeric:tabular-nums}
 .btn-primary.is-stop{background:linear-gradient(120deg,#e2554f,#f0785f)!important;
   box-shadow:0 6px 18px rgba(226,85,79,.28)!important}
+/* 未配置 AI：保持可点，用描边款式区分，避免与"正在批改"的红/紫按钮撞色 */
+.btn-primary.need-ai{background:linear-gradient(135deg,#6b6ee0,#8a6ae6 60%,#9b7bf0)!important;
+  box-shadow:0 2px 4px rgba(91,92,226,.16),0 8px 20px -8px rgba(91,92,226,.42)!important}
+.btn-primary.need-ai:hover{transform:translateY(-1px)}
 
 /* 标签上的批改进度 */
 .ftab .busytag{font-size:8.5px;font-weight:800;color:#5b5ce2;background:#eeefff;

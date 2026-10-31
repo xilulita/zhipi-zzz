@@ -397,7 +397,6 @@
   /* ---- 四个 Tab 页：各自内容连续排布，装不下自动续页 ---- */
   function tabBar(active) {
     const tabs = [
-      { k: 'overview', n: '全文概览' },
       { k: 'outline',  n: '写作思路' },
       { k: 'drill',    n: '小练笔' },
       { k: 'polish',   n: '润色后文章' }
@@ -406,13 +405,11 @@
       `<span class="tb ${t.k === active ? 'on' : ''}">${t.n}</span>`).join('')}</div>`;
   }
 
+  /* 全文概览：已取消。
+   * 四维评分 / 文章亮点 / 教师总评已并入封面（标题下方），问题栏与软件内
+   * 「批改报告」不对应，因此不再单独成块，避免同一内容在导出里出现两次。 */
   function tabOverview(o) {
-    return `<div class="tabpage">${tabBar('overview')}
-      ${secDims(o)}
-      ${secHighlights(o)}
-      ${secIssues(o)}
-      ${secReview(o)}
-    </div>`;
+    return '';
   }
 
   function tabOutline(o) {
@@ -435,10 +432,12 @@
 
   /* 封面：标题 + 评分条（仅第一页） */
   function secCover(o) {
-    // 封面首页：标题 + 评分 + 四维总览 + 总评摘要，让第一页有实质内容
+    // 封面首页：标题 → 四维评分 → 文章亮点（表扬）→ 教师总评
+    // 表扬紧跟四维评分，读者先看分数再看好在哪，最后读总评，顺序更顺
     return `<div class="cover">
       ${secHead(o)}
       ${secDims(o)}
+      ${secHighlights(o)}
       ${secReview(o)}
     </div>`;
   }
@@ -662,7 +661,7 @@ function placeCards(root, geometry) {
       cursor = it.top + it.h + GAP;
     });
 
-    // 四、底部溢出：从后往前整体上推，仍不够则整体上移并允许列变高
+    // 四、底部溢出：从后往前整体上推；推不动就让这一页变高，而不是压到下一页
     let overflow = cursor - GAP - paperH;
     if (overflow > 0) {
       for (let i = items.length - 1; i >= 0 && overflow > 0; i--) {
@@ -671,6 +670,17 @@ function placeCards(root, geometry) {
         items[i].top -= shift;
         overflow -= shift;
       }
+    }
+    /* 仍放不下：这一页按卡片总高撑开。
+     * 早期只做上推、列高又锁死在纸张高度，卡片会溢出列外压到下方的页码与
+     * 下一区块（表现为右下角批注盖住下一页标题）。这里把列高改为「内容与
+     * 纸张取大」，整页由最高的那一列决定，页间自然拉开间距。 */
+    const contentH = Math.max(paperH, cursor - GAP);
+    if (contentH > paperH) {
+      col.style.height = contentH + 'px';
+      col.dataset.grown = String(Math.round(contentH));
+    } else {
+      col.style.height = paperH + 'px';
     }
     // 五、消除小数误差后写回定位
     items.forEach(it => {
@@ -689,6 +699,11 @@ function placeCards(root, geometry) {
       });
     });
   });
+
+  // 整页高度取两列中较高的那列，卡片超出纸张时页间自然拉开
+  const cols = [root.querySelector('.col-side.left'), root.querySelector('.col-side.right')].filter(Boolean);
+  const maxCol = cols.reduce((m, c) => Math.max(m, parseFloat(c.style.height) || 0), 0);
+  if (maxCol) root.style.minHeight = Math.round(maxCol) + 'px';
 
   return placed;
 }
@@ -1103,7 +1118,18 @@ function hexA(hex, a) {
           it.el.style.left = '0'; it.el.style.right = '0';
           it.el.style.top = Math.round(it.top) + 'px';
         });
+        /* 卡片比纸张高时，这一列按内容撑开，整页跟着变高。
+         * 否则卡片会溢出列外，压到下面的页码与下一区块。 */
+        var contentH = Math.max(paperH, cursor - GAP);
+        col.style.height = contentH + 'px';
+        col.dataset.grown = contentH > paperH ? String(Math.round(contentH)) : '';
       });
+      /* 三列取最高者作为整页高度，页间因此自动留出分隔间距 */
+      var maxH = 0;
+      [].slice.call(root.querySelectorAll('.col-side')).forEach(function(c){
+        maxH = Math.max(maxH, parseFloat(c.style.height) || 0);
+      });
+      if (maxH) root.style.minHeight = Math.round(maxH) + 'px';
       drawLines(root);
     });
   }

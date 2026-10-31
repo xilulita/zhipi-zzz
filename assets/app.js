@@ -610,7 +610,25 @@
         <div class="plain-sheet">
           ${imgSheet(d, true)}
         </div>`;
-      requestAnimationFrame(() => { applyPaperBg(); fitPlainSheet(d); bindPageBar(); });
+      requestAnimationFrame(() => {
+        applyPaperBg();
+        fitPlainSheet(d);
+        bindPageBar();
+        /* 切页时新页背景图尚未解码完成，第一次 fitPlainSheet 可能量到
+         * 未就位的容器尺寸，纸张会短暂停在偏低的位置（肉眼是一次重影）。
+         * 图片解码后再校准一次；decode() 失败（如 dataURL 异常）也不影响首帧。 */
+        const bg = document.querySelector('.plain-wrap .paper-bg');
+        const late = () => requestAnimationFrame(() => fitPlainSheet(d));
+        if (bg) {
+          const url = bg.getAttribute('data-bg');
+          if (url) {
+            const im = new Image();
+            im.onload = late;
+            im.onerror = late;
+            im.src = url;
+          } else late();
+        } else late();
+      });
       return;
     }
     requestAnimationFrame(applyPaperBg);
@@ -624,10 +642,14 @@
     requestAnimationFrame(() => {
       fitBoard();     // 先应用缩放，再按真实像素坐标连接批注
       bindPageBar();
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        layoutAnnos();
-        bindMarkEditing();   // 划线可拖动 / 缩放 / 删除
-      }));
+      requestAnimationFrame(() => {
+        // 图片/字体加载后高度会变，复校一次，避免底部批注再次被裁
+        fitBoard();
+        requestAnimationFrame(() => {
+          layoutAnnos();
+          bindMarkEditing();   // 划线可拖动 / 缩放 / 删除
+        });
+      });
     });
   }
 
@@ -684,13 +706,47 @@
     void sheet.offsetHeight;                      // 强制重排
 
     const introH = intro ? intro.offsetHeight : 0;
-    const hostH = host.clientHeight;
+    /* 可视高度必须取「画板视口」，不能取 host.clientHeight 或 #canvasInner：
+     * 这两个容器都会被下面撑高，用它们当基准会形成测量环路，
+     * 第一轮撑高后第二轮就永远认为"没超高"，底部照样被裁。
+     * 只有外层 .canvas-wrap 是固定高度的滚动视口，才是真正的可用高度。 */
+    const viewport = document.querySelector('#canvasWrap');
+    const hostH = viewport ? viewport.clientHeight : host.clientHeight;
     // 以“实际纸张”为基准，相对整个画板垂直居中（上下留白一致）
     const paperEl0 = document.querySelector('.shot-img') || document.querySelector('.plain-wrap > div');
     const paperH0 = paperEl0 ? paperEl0.getBoundingClientRect().height : 0;
-    // 无介绍区：纸张在画板内垂直居中，上下留白一致
-    const centered = (hostH - paperH0) / 2;
-    const targetTop = Math.max(8, Math.min(centered, hostH - paperH0 - 8));
+    /* 居中基准要取「纸张」与「两侧批注列」中更高的那个。
+     * 早期只按纸张高度居中：批注卡比纸张高时，卡片下半截会溢出画板底部被裁掉，
+     * 表现为右下角最后那张紫色批注看不见。
+     * 统一用未缩放的布局高度（offsetHeight / scrollHeight / rect÷zoom）：
+     * sheet 上还挂着 scale(zoom)，直接用 rect 会把缩放算进内容高度。 */
+    const z = state.zoom || 1;
+    const sheetRect = sheet.getBoundingClientRect();
+    const contentH = Math.max(
+      (paperH0 || 0) / z,          // 纸张同样要剥掉 scale，否则缩放后会误判超高
+      sheet.offsetHeight || 0,
+      sheet.scrollHeight || 0,
+      (sheetRect.height || 0) / z
+    );
+    /* 切页瞬间新页的背景图还没解码完，纸张高度会读到 0。
+     * 这时若照常计算居中，slack 会接近整个视口高，纸张被定位到
+     * (hostH)/2 附近（实测 466px），图片加载出来后位置已经定格，
+     * 于是肉眼看到一次"重影 + 跳到偏下"。高度无效时直接跳过本次定位，
+     * 保留上一帧位置，等图片 onload 触发的复校再算。 */
+    if (!(contentH > 20)) return;
+    // 居中后若仍放不下，顶部再上提一点，保证上下都不越界；始终不高于画板顶部
+    const margin = 10;
+    const slack = hostH - contentH;
+    /* 居中略偏上：顶部留白应比底部少，但幅度要克制。
+     * 上移量取剩余空间的 1/12 且不超过 10px —— 之前用 slack/6 上限 18px，
+     * 在 1440/1920 常见窗口下会一次上移 18px，实测变成上 96 / 下 132，
+     * 反而给人"整体靠下"的错觉（顶部过紧、底部过松）。 */
+    let centered = slack / 2 - Math.min(10, Math.max(0, slack / 12));
+    if (centered < margin) centered = margin;
+    // 内容超过可视高度时，改为从顶部开始（配合画板滚动），避免只露出中段
+    const targetTop = slack < margin * 2
+      ? margin
+      : Math.max(margin, Math.min(centered, slack - margin));
 
     // 3) 应用垂直居中（绝对定位到计算值）
     sheet.style.position = 'absolute';
@@ -699,6 +755,23 @@
     sheet.style.transform = `translateX(-50%) scale(${zoom})`;
     sheet.style.transformOrigin = 'top center';
     sheet.style.margin = '0';
+    /* 内容比画板高时，让画板可以纵向滚动，而不是把底部裁掉。
+     * #canvasInner / .board-frame 默认锁死 height:100%，内容撑不开容器，
+     * 于是 .canvas-wrap 的 scrollHeight === clientHeight，永远滚不动。 */
+    const overflow = contentH + margin * 2 > hostH;
+    const inner = document.querySelector('#canvasInner');
+    if (inner) {
+      inner.style.height = overflow ? 'auto' : '100%';
+      inner.style.minHeight = '100%';
+    }
+    // .board-frame 在 CSS 里是 height:100%!important，行内普通赋值盖不住，必须带 important
+    if (overflow) {
+      host.style.setProperty('height', (contentH + margin * 2) + 'px', 'important');
+      host.style.setProperty('min-height', '100%', 'important');
+    } else {
+      host.style.setProperty('height', '100%', 'important');
+      host.style.setProperty('min-height', '100%', 'important');
+    }
 
     // 4) 印章：靠作文纸右下角
     const seal = document.querySelector('.demo-seal');
@@ -815,9 +888,14 @@
     let h = w * ratio;
     if (h > availH) { h = availH; w = h / ratio; }
 
+    /* 先给容器定尺寸，再动 .paper-bg 的 padding-top。
+     * 顺序反了会有一帧「容器高 0 + 百分比我 141.51%」的中间态：百分比
+     * padding 相对宽度计算仍需容器已定型，否则纸张高读到 0，
+     * fitPlainSheet 便按 0 居中，肉眼就是切页时的一次重影与下跳。 */
     box.style.width = (w * zoom) + 'px';
     box.style.height = (h * zoom) + 'px';
     box.style.maxHeight = 'none';
+    void box.offsetHeight;                      // 强制应用尺寸后再改背景
 
     const bg = box.querySelector('.paper-bg');
     if (bg) {
@@ -857,10 +935,15 @@
     const maxH0 = Math.max(320, ch0 - 92);   // 预留底部说明文字
     const dispW = Math.min(560, cw0 - 120, maxH0 / docRatio);
     if (raw) {
+      /* 高度用确定像素而不是 padding-top 百分比：
+       * 百分比 padding 依赖容器已有宽度，切页重建 DOM 时容器尚未定型，
+       * 会有一帧高度为 0，居中逻辑据此把纸张放到偏低处，形成可见的重影。
+       * 这里 dispW 与比例都已算好，直接给高度最稳。 */
+      const dispH = Math.round(dispW * docRatio);
       return `<div class="plain-wrap">
-        <div style="position:relative;width:${dispW}px;border-radius:6px;overflow:hidden;
+        <div style="position:relative;width:${dispW}px;height:${dispH}px;border-radius:6px;overflow:hidden;
           box-shadow:0 1px 3px rgba(20,23,45,.08),0 10px 32px rgba(20,23,45,.12);background:#fff">
-          <div class="paper-bg" data-bg="${esc(d.img)}" style="padding-top:${(d.h/d.w*100).toFixed(2)}%"></div>
+          <div class="paper-bg" data-bg="${esc(d.img)}" style="width:100%;height:100%"></div>
           <div class="scan-badge">待批改</div>
         </div>
         <div class="pending-hint">${d.isDemo ? '点击右侧「开始演示批改」，或拖入新的作文图片' : '点击左下角「一键批改」开始'}</div>
@@ -1536,10 +1619,13 @@
     }
     btn.classList.remove('is-stop');
     btn.disabled = false;
-    if (txt) txt.textContent = '一键批改';
     const hasAI = !!(window.ZPAI && window.ZPAI.mode());
     const noGrade = !((d && d.gradeId) || state.gradeId);
-    btn.title = !hasAI ? '请先配置 AI 批改接口'
+    // 未配置接口时按钮不置灰：置灰会让人连点试探却得不到任何反馈。
+    // 改为保持可点，文案直接说明下一步是什么，点一下自动展开配置面板。
+    btn.classList.toggle('need-ai', !hasAI);
+    if (txt) txt.textContent = hasAI ? '一键批改' : '先配置 AI';
+    btn.title = !hasAI ? '还未配置 AI 批改接口，点击展开配置'
       : !d || !d.realImg ? '请先上传作文图片'
       : noGrade ? '请先选择年级' : '开始批改这一份';
   }
@@ -1702,7 +1788,7 @@
     if (cur0 && cur0.grading) { stopGrade(cur0.id); return; }
 
     if (!window.ZPAI || !window.ZPAI.mode()) {
-      toast('请先配置 AI 批改接口');
+      toast('先配置 AI 接口，填好 API Key 后即可批改');
       openAIConfig();
       return;
     }
@@ -2864,12 +2950,28 @@
     if (ft) {
       ft.addEventListener('wheel', e => {
         if (ft.scrollWidth <= ft.clientWidth) return;
-        // 纵向滚轮转横向；Shift+滚轮自然横向
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-          ft.scrollLeft += e.deltaY;
-          e.preventDefault();
-        }
+        // 滚轮横向滚动：普通鼠标只有 deltaY，触摸板常同时给出 deltaX。
+        // 早期只判 deltaY > deltaX，触摸板横向手势会被漏掉，表现为「标签看得见却滚不过去」。
+        const dx = e.deltaX || 0, dy = e.deltaY || 0;
+        if (!dx && !dy) return;
+        // 以纵向为主时把纵向折算成横向；横向手势（含 shift+滚轮）直接用 deltaX
+        const move = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+        if (!move) return;
+        ft.scrollBy({ left: move, behavior: 'auto' });
+        e.preventDefault();
       }, { passive: false });
+
+      // 新增/切换标签后把目标标签滚进可视区，避免新标签落在容器外看不见、
+      // 连叉号都没机会点到（此前只在 renderTabs 里对 .ftab.on 做 nearest 滚动）。
+      const keepVisible = () => {
+        const on = ft.querySelector('.ftab.on');
+        if (!on) return;
+        const fr = ft.getBoundingClientRect();
+        const r = on.getBoundingClientRect();
+        if (r.left < fr.left) ft.scrollBy({ left: r.left - fr.left - 8, behavior: 'auto' });
+        else if (r.right > fr.right) ft.scrollBy({ left: r.right - fr.right + 8, behavior: 'auto' });
+      };
+      new MutationObserver(keepVisible).observe(ft, { childList: true, subtree: true });
     }
 
     // 缩放
@@ -3004,7 +3106,7 @@
           thinking: readMode() === 'quality',
           temperature: Number($('#adTemp') ? $('#adTemp').value : 0.25)
         };
-        write(c); refreshBadge(); syncDemoUI(); toast('AI 接口配置已保存，可以开始批改了');
+        write(c); refreshBadge(); syncDemoUI(); syncGradeButtons(); toast('AI 接口配置已保存，可以开始批改了');
       };
       $('#adTest').onclick = async () => {
         const base = $('#adBase').value.trim(), key = $('#adKey').value.trim(), model = $('#adModel').value.trim();
@@ -3035,7 +3137,7 @@
         const c = read();
         c.mode = 'local';
         c.local = { engine: $('#adEngine').value, base, model };
-        write(c); refreshBadge(); syncDemoUI(); toast('本地部署配置已保存，可以开始批改了');
+        write(c); refreshBadge(); syncDemoUI(); syncGradeButtons(); toast('本地部署配置已保存，可以开始批改了');
       };
       $('#adLocalTest').onclick = async () => {
         const base = $('#adLocalBase').value.trim() || 'http://127.0.0.1:11434';
@@ -3067,7 +3169,21 @@
     box.classList.add('open');
     setTimeout(() => {
       const sc = document.querySelector('.side-scroll');
-      if (sc) sc.scrollTo({ top: box.offsetTop - 8, behavior: 'smooth' });
+      if (!sc) return;
+      // 用 rect 差值算相对滚动容器的偏移：.side 不是定位元素，
+      // box.offsetTop 参照的是更外层祖先，直接拿它当 scrollTop 会跳错位置。
+      const scRect = sc.getBoundingClientRect();
+      const bRect = box.getBoundingClientRect();
+      const target = sc.scrollTop + (bRect.top - scRect.top) - 8;
+      const maxTop = Math.max(0, sc.scrollHeight - sc.clientHeight);
+      // 用即时滚动而非 smooth：面板刚展开时高度还在变，平滑动画易被打断；
+      // 且部分环境下（离屏/禁用硬件加速）smooth 动画不推进，会停在原处。
+      sc.scrollTo({ top: Math.max(0, Math.min(target, maxTop)), behavior: 'instant' });
+      // 同时聚焦第一个待填字段，用户不用再自己找输入框
+      const first = $('#adBase');
+      if (first && !first.value && !window.ZPAI?.mode()) {
+        try { first.focus({ preventScroll: true }); } catch (e) {}
+      }
     }, 60);
     // 高亮提示
     box.style.boxShadow = '0 0 0 3px rgba(91,92,226,.18)';
