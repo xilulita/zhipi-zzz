@@ -1660,3 +1660,11 @@ canvas-wrap img{-webkit-user-drag:none}
 
 /* 兼容：个别译文/说明性小字 */
 .side .field .tip,.side .field .note{font-size:10.8px!important}
+
+/* ===== 桌面版窗口圆角：Windows 11 的窗口为圆角，四角外侧由系统绘制；
+ * 若页面/覆盖层是直角全屏，圆角外会透出窗口底色形成黑三角。
+ * 让根容器跟随窗口圆角裁剪，并给 html 铺上同一底色，避免直角露出。 */
+html{background:#f5f6fa}
+body{background:#f5f6fa}
+/* 启动闪屏等全屏覆盖层跟随圆角，不让直角溢出窗角 */
+#zp-splash{border-radius:8px;overflow:hidden}

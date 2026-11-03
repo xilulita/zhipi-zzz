@@ -60,6 +60,8 @@ function createSplash() {
     height: 360,
     frame: false,
     transparent: true,
+    hasShadow: false,        // 透明窗的投影会在圆角外合成深色边，关掉
+    roundedCorners: true,
     resizable: false,
     show: false,
     alwaysOnTop: true,
@@ -80,7 +82,11 @@ function createMainWindow() {
     minHeight: 760,
     show: false,
     title: '智批作文专业版',
+    // 窗口底色与页面一致：Windows 11 圆角外侧由系统合成，
+    // 若底色偏深会在四角形成黑色三角/包边。
     backgroundColor: '#f5f6fa',
+    // 显式开启圆角（Win11 默认开启，这里声明意图，避免被主题或兼容设置关掉）
+    roundedCorners: true,
     icon: path.join(__dirname, '..', 'build', 'icon.ico'),
     autoHideMenuBar: true,
     webPreferences: {

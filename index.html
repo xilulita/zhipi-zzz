@@ -10,6 +10,8 @@
 <style>
 /* ===== 网页版启动画面（首帧内联，避免白屏闪烁） ===== */
 #zp-splash{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;
+  /* 跟随 Windows 11 窗口圆角（系统默认 8px 逻辑像素） */
+  border-radius:8px;
   background:radial-gradient(circle at 26% 14%,rgba(255,255,255,.20),transparent 32%),linear-gradient(135deg,#3a34a8 0%,#5b46cf 46%,#8d5ce4 100%);
   color:#fff;font-family:"Microsoft YaHei","PingFang SC",sans-serif;overflow:hidden;
   pointer-events:none;transition:opacity .48s ease,visibility .48s ease}
