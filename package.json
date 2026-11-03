@@ -41,7 +41,13 @@
       "electron/**/*",
       "build/icon.ico",
       "build/icon.png",
-      "!assets/*.part.*"
+      "!assets/*.part.*",
+      "!assets/.*.artifact.json",
+      "!assets/_side_font_bump.css",
+      "!assets/export_print.css",
+      "!assets/*.part.js",
+      "!assets/*.part.html",
+      "!assets/vendor/**"
     ],
     "asar": true,
     "compression": "maximum",
