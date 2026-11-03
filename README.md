@@ -183,7 +183,235 @@ AI 返回值会经过校验（分数钳制、批注数限制 4 条、亮点 3 �
 | `assets/data.js` | 年级规则、四维定义、体裁库、范文素材库、生成与评分引擎 |
 | `assets/app.js` | 状态管理、上传压缩、批改流程、渲染、交互 |
 
-- 无构建、无依赖、无网络请求，可离线使用
-- 所有数据均在浏览器本地生成，不上传服务器
+- **网页版**无构建、无依赖，打开 `index.html` 即可运行
+- **桌面版**需 Node.js 安装依赖后构建，详见第七、八节
+- 批改内容由本地评分引擎生成，作文图片仅在用户主动触发批改时发送到所配置的 AI 接口
 
 > 说明：本项目为**可运行的产品原型**，批改内容由内置的作文评分引擎（字数、段落、句式、修辞密度、细节密度等指标 + 体裁/年级规则库）生成，用于演示完整交互与报告结构。若要接入真实大模型，只需把 `assets/data.js` 中的 `scoreOf()` 与 `assets/app.js` 中的 `makeResult()` 替换为接口调用即可。
+
+---
+
+## 七、开发环境
+
+### 两种开发方式
+
+| 方式 | 适用 | 启动 |
+|---|---|---|
+| **网页版** | 调样式、改界面、写报告逻辑，改完刷新即可 | 直接双击 `index.html` |
+| **桌面版** | 调 Electron 主进程、窗口、安装包相关 | `npm start` |
+
+日常改 UI 建议用网页版，改动 `assets/` 下的文件后按 `Ctrl+R` 刷新，无需重启。只有动 `electron/` 下的主进程代码时才需要 `npm start`。
+
+### 环境要求
+
+| 项目 | 版本 | 说明 |
+|---|---|---|
+| Node.js | ≥ 18（推荐 20 LTS） | 仅桌面版打包需要，网页版无需 Node |
+| npm | ≥ 9 | 随 Node 附带 |
+| 操作系统 | Windows 10 / 11 x64 | 安装包目标平台 |
+
+### 首次安装
+
+```bash
+git clone https://github.com/xilulita/zhipi-zzz.git
+cd zhipi-zzz
+npm ci          # 按 package-lock.json 精确安装，推荐
+```
+
+若 `npm ci` 因 lock 文件与 `package.json` 不一致报错，改用 `npm install`。
+
+安装完成后：
+
+```bash
+npm start       # 启动桌面版
+```
+
+### 目录结构
+
+```
+index.html           页面入口（桌面版与网页版共用）
+assets/
+  style.css          全局样式、左栏、报告区、弹窗
+  board.css          画板、批注卡、引线、标注框
+  drill.css          小练笔模块样式
+  data.js            年级规则、四维定义、体裁库、生成与评分引擎
+  app.js             状态管理、上传压缩、批改流程、渲染、交互
+  ai.js              AI 接口调用、提示词、返回结果归一化
+  export.js          HTML 报告导出
+  app-icon.png       应用图标
+electron/
+  main.js            主进程：窗口、用户数据目录、IPC
+  preload.js         预加载桥（仅暴露最小接口）
+  splash.html        启动闪屏
+build/               打包用图标
+mock-ai.js           本地 mock AI 接口，用于调试链路
+```
+
+### 改完代码看不到变化？
+
+`index.html` 里的资源引用带了版本号，用于强制刷新浏览器缓存：
+
+```html
+<link rel="stylesheet" href="assets/style.css?v=1793661302">
+<script src="assets/app.js?v=1793675000"></script>
+```
+
+改完 `style.css` / `app.js` / `export.js` / `ai.js` / `data.js` 后，如果页面没有更新，把对应 `?v=` 数字改成新值（任意递增数字即可），或在浏览器里 `Ctrl+Shift+R` 强制刷新。
+
+### 调试
+
+- **网页版**：F12 打开开发者工具，Console 面板查看日志
+- **桌面版**：`npm start` 后同样可 F12；主进程日志（如用户数据目录迁移、导出失败）输出在启动它的终端里
+- **AI 链路**：用 `mock-ai.js` 起本地假接口，详见第五节「调试工具」
+
+---
+
+## 八、打包发布
+
+### 打包安装包
+
+```bash
+npm run dist:win
+```
+
+等价于：
+
+```bash
+electron-builder --win nsis --x64
+```
+
+产物输出到 `dist/`：
+
+| 文件 | 说明 |
+|---|---|
+| `ZhipiZuowen-Pro-Setup-<版本>.exe` | 安装包，发布用这个 |
+| `ZhipiZuowen-Pro-Setup-<版本>.exe.blockmap` | 差分更新用 |
+| `latest.yml` | 自动更新元数据 |
+| `win-unpacked/` | 解包目录，可直接运行其中的 exe 做冒烟测试 |
+
+### 发版流程
+
+1. 改 `package.json` 里的 `version`（如 `1.3.2` → `1.3.3`）
+2. 提交并推送
+3. `npm run dist:win`
+4. 在 GitHub 建一个 tag 为 `v<版本>` 的 Release，上传 `dist/` 下的 `.exe`
+
+`artifactName` 已配置为 `ZhipiZuowen-Pro-Setup-${version}.${ext}`，文件名会自动带版本号，无需手动改名。
+
+### 打包会被包含的文件
+
+由 `package.json` 的 `build.files` 白名单控制：
+
+```json
+"files": [
+  "index.html",
+  "assets/**/*",
+  "electron/**/*",
+  "build/icon.ico",
+  "build/icon.png",
+  "!assets/*.part.*",
+  "!assets/.*.artifact.json",
+  "!assets/_side_font_bump.css",
+  "!assets/export_print.css",
+  "!assets/*.part.js",
+  "!assets/*.part.html",
+  "!assets/vendor/**"
+]
+```
+
+带 `!` 的是排除项，用来挡掉拆片、构建元数据、临时样式和第三方库残留。新增这类文件时，记得同步加进排除列表，否则会被打进安装包。
+
+想确认某个文件在不在包里：
+
+```bash
+npx asar list dist/win-unpacked/resources/app.asar
+```
+
+### 用户数据目录
+
+桌面版的用户数据（批改历史、AI 配置）存放在：
+
+```
+%APPDATA%\ZhipiZuowenDesktop\
+```
+
+这个目录名由 `electron/main.js` 的 `DATA_DIR` 常量固定，**不要随意改动**——改了等于用户丢历史记录。设计上按 `appId` 隔离，因此「智批作文」和「智批作文专业版」可以同时安装、各自保留数据。
+
+### 代码签名
+
+当前构建**未签名**，日志里会出现：
+
+```
+• no code signing certificate configured, signing is skipped
+```
+
+未签名的安装包在用户首次运行时，Windows SmartScreen 会提示「未知发布者」，需点「更多信息 → 仍要运行」。这是预期行为，不是构建失败。
+
+如需签名，准备好代码签名证书（`.pfx`）后，通过环境变量传给 electron-builder：
+
+```bash
+# PowerShell
+$env:CSC_LINK="C:\path\to\cert.pfx"
+$env:CSC_KEY_PASSWORD="<证书密码>"
+npm run dist:win
+```
+
+`CSC_LINK` 也可以是证书的 base64 内容。证书文件不要提交进仓库，`.gitignore` 里建议补上 `*.pfx`、`*.p12`。
+
+---
+
+## 九、环境变量与镜像
+
+### 运行时的环境变量：无
+
+应用本身**不读取任何环境变量**。AI 接口地址、Key、模型名都在界面「AI 部署」里配置，保存在浏览器 / Electron 的 `localStorage`（键名 `zhipi.ai.deploy.v1`），不会进仓库，也不从 `.env` 读取。
+
+因此克隆后无需建 `.env` 文件即可运行。
+
+### 构建时的环境变量
+
+| 变量 | 作用 | 何时需要 |
+|---|---|---|
+| `ELECTRON_MIRROR` | 指定 Electron 二进制下载镜像 | 国内网络下载 Electron 超时/失败时 |
+| `ELECTRON_BUILDER_BINARIES_MIRROR` | 指定 electron-builder 辅助工具镜像 | 同上，打包工具下载失败时 |
+| `CSC_LINK` | 代码签名证书路径或 base64 | 需要签名安装包时 |
+| `CSC_KEY_PASSWORD` | 证书密码 | 需要签名安装包时 |
+
+### 国内网络：使用镜像
+
+`npm install` 和打包时会从 GitHub 下载 Electron 二进制，国内常出现 `ETIMEDOUT`。两种解决办法：
+
+**方式一：临时指定（单次生效）**
+
+```bash
+# Windows PowerShell
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+$env:ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+npm ci
+npm run dist:win
+```
+
+```bash
+# macOS / Linux / Git Bash
+export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+export ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+```
+
+**方式二：写入项目 `.npmrc`（长期生效）**
+
+```
+registry=https://registry.npmmirror.com
+electron_mirror=https://npmmirror.com/mirrors/electron/
+electron_builder_binaries_mirror=https://npmmirror.com/mirrors/electron-builder-binaries/
+```
+
+`.npmrc` 若不需要入库，可加入 `.gitignore`。
+
+### 常见构建问题
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `connect ETIMEDOUT ...:443` | 下载 Electron 超时 | 按上节配置镜像后重试 |
+| `EBUSY: resource busy or locked ... app.asar` | 旧的 `dist/` 被占用（残留进程或文件句柄） | 输出到别的目录：`npx electron-builder --win nsis --x64 -c.directories.output=dist-build` |
+| `EPERM` 重命名 `win-unpacked` 失败 | 杀毒软件或索引服务正在扫该目录 | 换输出目录重试，或把项目目录加入杀软白名单 |
+| 安装包体积 99MB 左右 | 包含完整 Electron 运行时，属正常 | — |
