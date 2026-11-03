@@ -384,6 +384,13 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 
 /* 总评 */
 .review{font-size:12px;line-height:1.95;color:var(--ink-2);text-align:justify}
+/* 错别字汇总：只呈现「错字 → 正字」，不写原因与改法 */
+.typo-list{display:flex;flex-wrap:wrap;gap:6px}
+.typo-item{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:7px;
+  background:#fdf3f2;border:1px solid #f6e3e0;font-size:12px;line-height:1.5}
+.typo-item s{color:#d94a44;text-decoration-thickness:1.5px;text-underline-offset:2px}
+.typo-item i{font-style:normal;color:#c2a49f;font-size:11px}
+.typo-item b{color:#1e7a52;font-weight:700}
 .review .lead{font-weight:700;color:var(--ink)}
 .review .em{color:var(--brand);font-weight:600}
 .review .gn{color:var(--green);font-weight:600}
@@ -537,7 +544,9 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 #zoomLabel{color:#5f6575}
 
 .canvas-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:18px;
-  padding:9px 16px 10px;border-top:1px solid var(--line);background:#fff;
+  /* 去掉 1px 顶边线：非整数缩放下会渲染成约 0.74px 的浅灰细带，
+     在页面底部看起来像一条多余的「透明框」。 */
+  padding:9px 16px 10px;border-top:0;background:#fff;
   font-size:10.5px;color:#868b97;border-radius:0 0 var(--radius) var(--radius);margin-bottom:-1px}
 .canvas-foot .legend{border-left:none;padding-left:0;margin-left:0;gap:18px}
 .canvas-foot .legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
@@ -825,9 +834,13 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .sc-num{letter-spacing:0}
 
 /* 待批改：单层白纸 + 下方纯文字提示 */
-.plain-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}
+.plain-wrap{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%;
+  /* 底部留白收窄到 10px：配合顶部基准 10px，整体再上移，
+     底部又不至于贴边（页码栏自身还有 10px 间距）。 */
+  padding-bottom:10px;box-sizing:border-box}
 .pending-hint{font-size:10.5px;color:#a4a9b6;letter-spacing:.2px}
-.pending-hint::before{content:"·";margin-right:6px;color:#d3d7e2}
+/* 提示文字前的圆点在部分字体下会渲染成一条浅色短横，去掉 */
+.pending-hint::before{content:none}
 /* 外层不再有 padding 白卡 */
 .plain-sheet{background:transparent}
 .plain-sheet .paper{all:unset}
@@ -1166,6 +1179,9 @@ canvas-wrap img{-webkit-user-drag:none}
   margin:0!important;flex:none!important;width:100%;
   display:flex;align-items:center;justify-content:center;
 }
+/* 批注高于纸张时（fitBoard 会给 .sheet-wrap 加 .col-overflow），
+   改为顶部对齐：否则纸张会被 centering 推到下方，顶部留出大片空白。 */
+.board-frame > .sheet-wrap.col-overflow{align-items:flex-start}
 .demo-seal{grid-row:1/-1;position:absolute!important}
 
 /* fitBoard 需要 board-frame 为定位上下文且满高 */
@@ -1269,12 +1285,21 @@ canvas-wrap img{-webkit-user-drag:none}
 .page-bar .pg:hover{border-color:#c9c6f5;color:var(--brand);background:#fafaff}
 .page-bar .pg.on{color:#fff;border-color:transparent;
   background:linear-gradient(120deg,#5b5ce2,#8b6cf1);box-shadow:0 3px 10px rgba(91,92,226,.28)}
-.page-bar .pg-wrap{display:inline-flex;align-items:center;border:1px solid #e6e9f2;border-radius:8px;
-  background:rgba(255,255,255,.62);overflow:hidden;box-shadow:0 1px 4px rgba(20,23,45,.04);
-  backdrop-filter:blur(4px)}
-.page-bar .pg-wrap:not(.on){background:rgba(255,255,255,.55);border-color:rgba(210,215,228,.72)}
+/* 页码组：去掉半透明底与毛玻璃。原来在纸张边缘会渲出一块灰色小方块，
+   看起来像多余的空格子；未选中的页现在只保留文字。 */
+/* 页码组：彻底不要边框/底色/毛玻璃。
+ * 之前留 1px transparent 边框，缩放下仍会渲染出约 0.7px 的浅灰细框，
+ * 看起来就是「旁边有个透明小方块」。未选中页只显示文字。 */
+.page-bar .pg-wrap{display:inline-flex;align-items:center;border:0;border-radius:6px;
+  background:transparent;overflow:visible;box-shadow:none;backdrop-filter:none}
+.page-bar .pg-wrap:not(.on){background:transparent;border:0}
+.page-bar .pg-wrap:not(.on):hover{background:#f4f5fa;border:0}
+/* 选中页：只保留紫色填充，不再加描边。
+   原规则在这里设了 border-color:#7778eb，会盖掉上面的 border:0，
+   在页码周围留出一圈浅色描边（用户看到的「透明框」）。 */
 .page-bar .pg-wrap .pg{border:0!important;border-radius:0;background:transparent;box-shadow:none;padding:0 9px}
-.page-bar .pg-wrap.on{border-color:#7778eb;background:linear-gradient(120deg,#5b5ce2,#8b6cf1)}
+.page-bar .pg-wrap.on{border:0!important;border-color:transparent!important;
+  background:linear-gradient(120deg,#5b5ce2,#8b6cf1);border-radius:7px}
 .page-bar .pg-wrap.on .pg{color:#fff;background:transparent}
 .page-bar .pg-del{width:0;min-width:0;height:26px;padding:0;border:0;border-left:1px solid transparent;
   background:transparent;color:#a1a6b3;font-size:15px;line-height:1;cursor:pointer;
@@ -1368,6 +1393,20 @@ canvas-wrap img{-webkit-user-drag:none}
   color:#2a2c35;letter-spacing:1px;margin-bottom:10px}
 .polish-paper p{font-family:var(--serif);font-size:11.6px;line-height:2.05;color:#33363f;
   text-indent:2em;margin:0 0 2px;text-align:justify}
+/* 润色稿正文高亮：逐句着色，不同手法不同颜色。
+ * 参考图的效果是「一句一色、其余保持黑色」，所以这里底色更实、
+ * 文字用同色系深色，既醒目又不至于像荧光笔那样糊成一片。 */
+.polish-paper mark.ph{color:inherit;padding:0 2px;border-radius:3px;
+  box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.polish-paper mark.ph-rhetoric{color:#6d33b0;background:#f2e4fd}
+.polish-paper mark.ph-sense{color:#15724a;background:#dcf3e6}
+.polish-paper mark.ph-action{color:#9a5f08;background:#fdedd2}
+.polish-paper mark.ph-theme{color:#1a5489;background:#dfecfb}
+.polish-paper mark.ph-detail{color:#4a5262;background:#eceef5}
+/* 说明卡片：处数徽标 */
+.pn-cnt{margin-left:auto;font-size:9px;font-weight:700;color:#8b90a0;
+  background:rgba(255,255,255,.72);border-radius:5px;padding:1px 6px}
+.pn-note-h{display:flex;align-items:center;gap:5px}
 
 /* 卡片宽度对齐：统一内边距，避免总评/技巧卡视觉过宽 */
 .tabpane > .card{padding:12px 13px!important}
@@ -1537,6 +1576,29 @@ canvas-wrap img{-webkit-user-drag:none}
 .pn-note-d{font-size:10.2px;line-height:1.68;color:#5b6472}
 .pn-note-s{margin-top:5px;font-size:9.9px;line-height:1.62;color:#7a8194;
   background:#f4f7fb;border-radius:5px;padding:5px 7px;word-break:break-word}
+/* 润色手法按类别配色：修辞 / 感官 / 动作 / 点题，与文中高亮一一对应 */
+.pn-note{position:relative;padding-left:13px}
+.pn-note-h i{position:absolute;left:0;top:12px;width:5px;height:5px;border-radius:50%;background:#4aa96c}
+.pn-note.k-rhetoric{background:#fbf7fe;border-color:#eee3f8}
+.pn-note.k-rhetoric .pn-note-h{color:#7b45b8}
+.pn-note.k-rhetoric .pn-note-h i{background:#9b6be0}
+.pn-note.k-sense{background:#f6fbf8;border-color:#dcefe4}
+.pn-note.k-sense .pn-note-h{color:#1f7a52}
+.pn-note.k-sense .pn-note-h i{background:#34a06b}
+.pn-note.k-action{background:#fffaf3;border-color:#f6e9d6}
+.pn-note.k-action .pn-note-h{color:#a56a12}
+.pn-note.k-action .pn-note-h i{background:#d99a2b}
+.pn-note.k-theme{background:#f5f9fe;border-color:#dde8f6}
+.pn-note.k-theme .pn-note-h{color:#1f5f9a}
+.pn-note.k-theme .pn-note-h i{background:#3f83c9}
+/* 具体扩充了什么：逐条列出，带段号 */
+.pn-note-list{margin:5px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+.pn-note-list li{display:flex;align-items:flex-start;gap:6px;font-size:10px;line-height:1.6;color:#5b6472}
+.pn-note-list li::before{content:"";flex:0 0 4px;width:4px;height:4px;border-radius:50%;
+  background:currentColor;opacity:.35;margin-top:7px}
+.pn-p{flex:0 0 auto;font-size:9px;color:#8b90a0;background:#f0f2f7;border-radius:4px;padding:1px 5px;
+  font-variant-numeric:tabular-nums}
+.pn-t{flex:1 1 auto;word-break:break-word}
 
 /* 写作思路：现状诊断 + 下一步方向 */
 .outline-now{margin-bottom:12px;padding:10px 11px;border-radius:10px;
@@ -1555,3 +1617,46 @@ canvas-wrap img{-webkit-user-drag:none}
 .nx-h{font-size:10.4px;line-height:1.7;color:var(--ink-2)}
 .nx-e{margin-top:5px;font-size:9.6px;line-height:1.6;color:#9aa0ad;
   padding-left:8px;border-left:2px solid #eae8fa}
+
+/* ===== 左侧功能栏字号整体 +1px（统一覆盖此前的 !important 规则） ===== */
+.side .field > .cap,
+.side .field > .cap.cap,
+.side .cap{font-size:12.5px!important;letter-spacing:.1px!important}
+
+.side .ad-ttl{font-size:12.5px!important}
+.side .ad-cur{font-size:10.5px!important}
+.side .ad-tab{font-size:11.5px!important}
+.side .ad-tabs{padding:3px!important}
+.side .ad-row label{font-size:10.5px!important}
+.side .ad-help{font-size:10.5px!important;line-height:1.65!important}
+.side .ad-help b{font-size:11px!important}
+.side .ad-help code{font-size:10px!important}
+
+.side .dim-h .n{font-size:12.5px!important}
+.side .dim-h .v{font-size:12px!important}
+.side .dim-h .v span{font-size:10px!important}
+.side .dim .hint,
+.side .dim p.hint{font-size:10.8px!important;line-height:1.6!important}
+
+.side .collapse > .ch{padding:11px 11px!important}
+.side .collapse > .ch .ttl{font-size:13px!important}
+
+.side .gsel-pick{font-size:13.5px!important}
+.side .gsel-pick i{font-size:10.5px!important}
+.side .gsel-menu .gopt{font-size:12.5px!important;padding:8px 9px!important}
+.side .gsel-menu .gopt em{font-size:10.5px!important}
+
+.side .drop .t{font-size:12px!important;line-height:1.45!important}
+.side .drop .s{font-size:10.5px!important;line-height:1.5!important}
+.side .upload-hint{font-size:10.5px!important;line-height:1.55!important}
+
+.side .chip{font-size:11px!important;padding:6px 2px!important;line-height:1.3!important}
+.side .chips{gap:6px!important}
+
+.side .foot-row{margin-top:8px!important}
+.side .btn-soft{font-size:12px!important;height:32px!important}
+.side .btn-ghost,
+.side .btn-line{font-size:12px!important}
+
+/* 兼容：个别译文/说明性小字 */
+.side .field .tip,.side .field .note{font-size:10.8px!important}

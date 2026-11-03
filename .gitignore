@@ -43,3 +43,16 @@ assets/*.part.html
 智批作文-*.html
 局部截取_*.png
 msedge.exe_*.webp
+
+# 打包输出目录（dist-build5 等手工指定目录）
+dist-build5/
+dist-*/
+
+# 运行时临时目录
+.box-agent-scratch/
+
+# 构建元数据与临时样式碎片
+assets/*.artifact.json
+assets/_side_font_bump.css
+assets/export_print.css
+assets/vendor/

@@ -19,13 +19,25 @@
   }
 
   /* ---------- 构造提示词 ---------- */
-  function buildPrompt(grade, genre, weights) {
+  function buildPrompt(grade, genre, weights, gradeMeta) {
     const dims = [
       `内容立意（权重${weights[0]}%）：主题是否明确、立意是否深刻、素材是否贴合题意`,
       `结构逻辑（权重${weights[1]}%）：段落安排是否合理、层次是否清晰、详略是否得当`,
       `语言表达（权重${weights[2]}%）：用词是否准确生动、句式是否流畅、修辞运用水平`,
       `规范书写（权重${weights[3]}%）：错别字、病句、标点与书写规范`
     ].join('\n');
+
+    /* 年级字数区间：润色稿必须落在这个范围，而不是在原文基础上按比例扩写。
+     * 早期只要求"扩写 30%~60%"，原文偏长时润色稿会一路涨到上千字，
+     * 五年级曾出现 1170 字的润色稿，远超 450~550 的要求。 */
+    const rng = (gradeMeta && Array.isArray(gradeMeta.range)) ? gradeMeta.range : null;
+    const lo = rng ? rng[0] : null;
+    const hi = rng ? rng[1] : null;
+    const wordRule = rng
+      ? `润色稿全文（不含标点以外的空白）控制在 ${lo - 50}~${hi + 50} 字，` +
+        `即本年级 ${lo}~${hi} 字的要求上下浮动 50 字以内；` +
+        `宁可删减重复与赘述，也不要写成长篇。`
+      : `润色稿篇幅与原文相当，不要明显加长。`;
 
     return `你是一位资深的${grade}语文教师，正在批改一篇${genre}。请先逐字识别图片中的手写作文，再按以下四个维度评分并给出批注。
 
@@ -62,7 +74,9 @@ ${dims}
    坐标规则非常重要：坐标相对于该条批注所在的【那一页】图片，图片左上角为 (0,0)，右下角为 (1,1)。x/y 是 quote 实际文字区域左上角，w/h 是宽高，均为 0~1 小数；必须满足 x+w<=1、y+h<=1。矩形要贴住 quote 的首字与末字，行中心与文字中心一致，不要固定整行宽度，不要放在行间空白。若无法确定真实位置，设置 located=false，不要编造坐标。
 6. 总评 200~400 字，要有具体表扬、具体问题、可执行建议。
 7. 额外给出一版**润色后全文** polished。这是给学生看的"范文升级版"，要求**看得出明显变化**，不能只是把原句改通顺：
-   - 篇幅：在你识别出的原文基础上扩写约 30%~60%，段落数与原文一致，情节与结构不变；
+   - 篇幅（**硬性要求**）：${wordRule}
+     段落数与原文一致，情节与结构不变；字数不够时靠删掉空话、合并重复句来压，
+     不要靠堆砌形容词凑数；确实还超，就优先删与中心无关的旁枝。
    - 细节：每个关键情节补 1~2 处慢镜头——手怎么动、肩膀怎么塌、呼吸怎么变、空气里是什么味道；
    - 修辞：比喻至少 2 处、拟人至少 1 处，喻体必须来自日常生活且贴切（"像被反复折过的纸"好过"像蝴蝶"）；
    - 句式：长短句交替，情绪最重的地方用 4~8 字的短句单独成句；
@@ -286,7 +300,7 @@ ${dims}
       throw err;
     }
     const cfg = readCfg();
-    const prompt = buildPrompt(gradeMeta.name, genreName, weights || [30, 25, 25, 20]);
+    const prompt = buildPrompt(gradeMeta.name, genreName, weights || [30, 25, 25, 20], gradeMeta);
     // 多页作文：一次提交全部页面，按上传顺序作为第 1、2…页
     const pageImgs = (Array.isArray(doc.pages) && doc.pages.length)
       ? doc.pages.map(p => p.img).filter(Boolean)
@@ -784,6 +798,32 @@ ${dims}
       ? raw.polished.map(x => String(x || '').trim()).filter(Boolean)
       : [];
 
+    /* 润色稿字数兜底：提示词已按年级区间约束，但模型仍可能写超。
+     * 超过「本年级上限 + 50」时按句子从后往前删减，压回区间；
+     * 少于下限时不动——硬凑字数会破坏文意，交给提示词约束即可。 */
+    const trimPolished = (arr) => {
+      const rng = Array.isArray(gradeMeta.range) ? gradeMeta.range : null;
+      if (!rng || !arr.length) return arr;
+      const cap = rng[1] + 50;
+      const cnt = s => String(s || '').replace(/\s/g, '').length;
+      if (arr.reduce((a, p) => a + cnt(p), 0) <= cap) return arr;
+      const out = arr.slice();
+      // 从最后一段开始削，保留每段至少 1 句，避免段落被删空
+      while (out.reduce((a, p) => a + cnt(p), 0) > cap) {
+        let idx = -1;
+        for (let i = out.length - 1; i >= 0; i--) {
+          const sents = out[i].split(/(?<=[。！？…])/).filter(x => x.trim());
+          if (sents.length > 1) { idx = i; break; }
+        }
+        if (idx < 0) break;
+        const sents = out[idx].split(/(?<=[。！？…])/).filter(x => x.trim());
+        sents.pop();
+        out[idx] = sents.join('');
+      }
+      return out.filter(x => x && x.trim());
+    };
+    const polishedFinal = trimPolished(polished);
+
     return {
       essay: { title: autoTitle(raw.title, paras, genreName), paras: paras.length ? paras : ['（未识别到正文）'], words, genre: genreName },
       score: { points, total, stats: { words, paras: paras.length } },
@@ -794,7 +834,7 @@ ${dims}
         issues,
         review: String(raw.review || '').replace(/\n/g, '<br>'),
         stu: '', words, genre: genreName,
-        polished,
+        polished: polishedFinal,
         dimComments: {
           content: dims.content?.comment || '',
           structure: dims.structure?.comment || '',

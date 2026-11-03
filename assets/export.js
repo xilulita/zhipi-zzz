@@ -306,15 +306,42 @@
   .drill .r.demo span:last-child{color:#40507a;font-family:"Songti SC","SimSun",serif;font-size:11px}
 
   /* ---- 总评 / 润色稿 ---- */
+  /* ---- 错别字汇总：只呈现「错 → 对」 ---- */
+  .typo-grid{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
+  .typo{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:8px;
+    background:#fdf3f2;border:1px solid #f4e1de;font-size:12.6px;line-height:1.6}
+  .typo s{color:#d94a44;text-decoration-thickness:1.6px;text-underline-offset:3px}
+  .typo i{font-style:normal;color:#c2a49f;font-size:11.5px}
+  .typo b{color:#1e7a52;font-weight:700}
   .review{font-size:13.4px;line-height:2.1;text-align:justify;color:#3a3d47}
   .review p{margin:0 0 9px;text-indent:2em}
   .review b{color:#5b5ce2}
-  .paper-txt{background:#fdfcf8;border:1px solid #f2efe6;border-radius:10px;padding:36px 40px;min-height:940px}
+  /* 不再固定 min-height：原来 940px 会让短文下方留出大片空白。
+     改为按内容自然高度，只在打印分页时保持整块不被切断。 */
+  .paper-txt{background:#fdfcf8;border:1px solid #f2efe6;border-radius:10px;padding:36px 40px}
+  /* 润色稿高亮：逐句着色，不同手法不同颜色 */
+  .paper-txt mark.ph{color:inherit;padding:0 2px;border-radius:3px;
+    box-decoration-break:clone;-webkit-box-decoration-break:clone}
+  .paper-txt mark.ph-rhetoric{color:#6d33b0;background:#f2e4fd}
+  .paper-txt mark.ph-sense{color:#15724a;background:#dcf3e6}
+  .paper-txt mark.ph-action{color:#9a5f08;background:#fdedd2}
+  .paper-txt mark.ph-theme{color:#1a5489;background:#dfecfb}
+  .paper-txt mark.ph-detail{color:#4a5262;background:#eceef5}
+  @media print{ .paper-txt mark.ph{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
   /* ---- 本次润色说明 ---- */
   .pn-head{font-size:14px;font-weight:800;color:#2a2c35;margin:22px 0 5px;
     padding-left:9px;border-left:3.5px solid #4aa96c;line-height:1.3}
   .pn-sub{font-size:10.6px;color:#8f96a8;line-height:1.65;margin:0 0 10px;padding-left:12px}
   .pn-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  /* 润色手法按类别配色，与界面同一套 */
+  .pn.k-rhetoric{background:#fbf7fe;border-color:#eee3f8}
+  .pn.k-rhetoric .pn-n{color:#7b45b8}
+  .pn.k-sense{background:#f6fbf8;border-color:#dcefe4}
+  .pn.k-sense .pn-n{color:#1f7a52}
+  .pn.k-action{background:#fffaf3;border-color:#f6e9d6}
+  .pn.k-action .pn-n{color:#a56a12}
+  .pn.k-theme{background:#f5f9fe;border-color:#dde8f6}
+  .pn.k-theme .pn-n{color:#1f5f9a}
   .pn{border:1px solid #e9eef4;border-radius:9px;padding:9px 11px;background:#fbfcfe}
   .pn-n{font-size:11.6px;font-weight:800;color:#1f6b8a;margin-bottom:3px;display:flex;align-items:center;gap:5px}
   .pn-n::before{content:"·";color:#4aa96c;font-weight:900;font-size:15px;line-height:1}
@@ -432,12 +459,12 @@
 
   /* 封面：标题 + 评分条（仅第一页） */
   function secCover(o) {
-    // 封面首页：标题 → 四维评分 → 文章亮点（表扬）→ 教师总评
-    // 表扬紧跟四维评分，读者先看分数再看好在哪，最后读总评，顺序更顺
+    // 封面首页：标题 → 四维评分 → 教师总评
+    // 「文章亮点」已按需求移除，表扬融入四维评语与总评，不再单列。
     return `<div class="cover">
       ${secHead(o)}
       ${secDims(o)}
-      ${secHighlights(o)}
+      ${secTypos(o)}
       ${secReview(o)}
     </div>`;
   }
@@ -765,12 +792,6 @@ function hexA(hex, a) {
     return `<div class="sec">四维评分</div><div class="dims">${dims}</div>`;
   }
 
-  function secHighlights(o) {
-    const hl = o.highlights.map((h, i) =>
-      `<div class="li"><b>${i + 1}. ${esc(h.t)}</b><div style="margin-top:4px">${h.d}</div></div>`).join('');
-    return `<div class="sec">文章亮点</div>${hl}`;
-  }
-
   function secIssues(o) {
     const iss = o.issues.map((it, i) => `<div class="li">
       <b>${i + 1}. ${esc(it.title)}</b><span class="sev">${it.sev === 'high' ? '重要' : it.sev === 'mid' ? '中等' : '轻微'}</span>
@@ -903,7 +924,12 @@ function hexA(hex, a) {
         '改完放回原文，确认与上下文衔接自然。'];
     };
 
-    const fixes = issues.slice(0, 3).map((it, i) => ({
+    /* 「具体问题与修改思路」只针对表达内容，不收录错别字/标点类订正。
+     * 那些具体到某个字的改法统一放进「错别字汇总」，避免两处重复。 */
+    const contentIssues = issues.filter(it => !/错别字|别字|错字|标点|的地得|“的\/地\/得”/i.test(
+      [it.title, it.desc, it.dim].filter(Boolean).join(' ')
+    ));
+    const fixes = contentIssues.slice(0, 3).map((it, i) => ({
       t: it.title || `问题 ${i + 1}`,
       d: it.desc || '',
       quote: it.quote || '',
@@ -966,10 +992,47 @@ function hexA(hex, a) {
       </div>`).join('')}`;
   }
 
+  /* 错别字汇总：只列「错字 → 正字」，不写原因与改法。
+   * 与界面同一口径，避免与总评、「具体问题与修改思路」重复。 */
+  function secTypos(o) {
+    const list = (o.annos || []).map(a => a && a.typo).filter(t => t && t.wrong && t.right);
+    if (!list.length) return '';
+    const seen = new Set();
+    const uniq = [];
+    list.forEach(t => {
+      const k = t.wrong + '>' + t.right;
+      if (seen.has(k)) return;
+      seen.add(k); uniq.push(t);
+    });
+    return `<div class="sec">错别字汇总<span class="tag">${uniq.length} 处</span></div>
+      <div class="typo-grid">
+        ${uniq.map(t => `<span class="typo"><s>${esc(t.wrong)}</s><i>→</i><b>${esc(t.right)}</b></span>`).join('')}
+      </div>`;
+  }
+
   function secReview(o) {
     const html = String(o.review).split(/<br\s*\/?>/i).filter(x => x.trim())
       .map(p => `<p>${p}</p>`).join('') || `<p>${esc(o.review)}</p>`;
     return `<div class="sec">教师总评</div><div class="review">${html}</div>`;
+  }
+
+  /* 润色稿正文高亮：把新增片段包成带分类底纹的 <mark>，与说明卡片同色。
+   * 只在关键新增句上着色，同段多区间按位置拼接、不重叠。 */
+  function hlText(text, pi, marks) {
+    const raw = String(text || '');
+    const list = (marks || []).filter(m => m.para === pi).sort((a, b) => a.start - b.start);
+    if (!list.length) return esc(raw);
+    let out = '', cursor = 0;
+    list.forEach(m => {
+      const st = Math.max(cursor, Math.min(raw.length, m.start));
+      const en = Math.max(st, Math.min(raw.length, m.end));
+      if (en <= st) return;
+      if (st > cursor) out += esc(raw.slice(cursor, st));
+      out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
+      cursor = en;
+    });
+    if (cursor < raw.length) out += esc(raw.slice(cursor));
+    return out;
   }
 
   function secPolish(o) {
@@ -977,14 +1040,14 @@ function hexA(hex, a) {
     const notes = o.polishNotes || [];
     return `<div class="sec">润色后文章${lvTag ? `<span class="tag">${esc(lvTag)}</span>` : ''}</div>
       <div class="paper-txt"><div class="t">${esc(o.title)}</div>
-        ${o.polished.map(t => `<p>${esc(t)}</p>`).join('')}</div>
+        ${o.polished.map((t, pi) => `<p>${hlText(t, pi, o.polishMarks)}</p>`).join('')}</div>
       ${notes.length ? `<div class="pn-head">本次润色说明</div>
       <div class="pn-sub">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
       <div class="pn-grid">
-        ${notes.map(n => `<div class="pn">
+        ${notes.map(n => `<div class="pn k-${n.key || 'plain'}">
           <div class="pn-n">${esc(n.name)}</div>
           <div class="pn-d">${esc(n.desc)}</div>
-          ${n.sample ? `<div class="pn-s">${esc(n.sample)}</div>` : ''}
+
         </div>`).join('')}
       </div>` : ''}`;
   }
@@ -1222,33 +1285,18 @@ function hexA(hex, a) {
 
   function buildDocument(o) { return buildLongDocument(o); }
 
+
+
   /* ---------- 导出 HTML ---------- */
-  /* opts.autoPrint：网页版没有原生 PDF 能力时，打开文档后直接唤起打印，
-   * 由用户选择「另存为 PDF」；桌面版走主进程的 printToPDF，不会用到此分支。 */
+  /* ---------- 导出 HTML：单文件自包含，点击即下载 ---------- */
   function exportHTML(o, opts) {
     const html = buildDocument(o);
     const blob = new Blob(['\ufeff' + html], { type: 'text/html;charset=utf-8' });
     const name = `智批作文专业版-${safe(o.title)}.html`;
 
-    if (opts && opts.autoPrint) {
-      const url = URL.createObjectURL(blob);
-      const w = window.open(url, '_blank');
-      if (w) {
-        // 等文档与图片就绪再唤起打印，否则只能打出空白页
-        const fire = () => {
-          try { w.focus(); w.print(); } catch (e) { /* 用户可手动 Ctrl+P */ }
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-        };
-        w.addEventListener('load', () => setTimeout(fire, 600), { once: true });
-        setTimeout(() => { if (!w.closed) fire(); }, 2500);
-      } else {
-        // 弹窗被拦截：退回下载，用户自行打开
-        dl(blob, name);
-      }
-      return;
-    }
     dl(blob, name);
   }
+
 
   /* ---------- 工具 ---------- */
   const esc = s => String(s == null ? '' : s)

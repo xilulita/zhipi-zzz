@@ -648,6 +648,11 @@
         requestAnimationFrame(() => {
           layoutAnnos();
           bindMarkEditing();   // 划线可拖动 / 缩放 / 删除
+          /* layoutAnnos 排完批注后，左右列才会被撑到真实高度。
+           * 之前它排在最后且之后不再校准，fitBoard 量到的仍是「只有纸张」的高度，
+           * 批注比纸张高时画板没跟着变高、纸张也没按新内容重新定位，
+           * 表现为作文整体靠下、上半留白像有空气墙。这里补一次收尾校准。 */
+          requestAnimationFrame(() => fitBoard());
         });
       });
     });
@@ -734,19 +739,40 @@
      * 于是肉眼看到一次"重影 + 跳到偏下"。高度无效时直接跳过本次定位，
      * 保留上一帧位置，等图片 onload 触发的复校再算。 */
     if (!(contentH > 20)) return;
+
+    /* 批注列高于纸张时，把 .sheet-wrap 切成顶部对齐。
+     * 它本身是 flex 容器，默认 align-items:center；一旦被更高的批注撑开，
+     * 中间的纸张就会被垂直居中推到下方，顶部留出一片空白
+     * （用户描述为「图片靠下、像有空气墙」）。批注多、纸张矮时最明显。 */
+    const paperH = (paperH0 || 0) / z;
+    const colH = Math.max(
+      sheet.offsetHeight || 0,
+      sheet.scrollHeight || 0,
+      (sheetRect.height || 0) / z
+    );
+    sheet.classList.toggle('col-overflow', colH > paperH + 2);
     // 居中后若仍放不下，顶部再上提一点，保证上下都不越界；始终不高于画板顶部
     const margin = 10;
     const slack = hostH - contentH;
-    /* 居中略偏上：顶部留白应比底部少，但幅度要克制。
-     * 上移量取剩余空间的 1/12 且不超过 10px —— 之前用 slack/6 上限 18px，
-     * 在 1440/1920 常见窗口下会一次上移 18px，实测变成上 96 / 下 132，
-     * 反而给人"整体靠下"的错觉（顶部过紧、底部过松）。 */
-    let centered = slack / 2 - Math.min(10, Math.max(0, slack / 12));
-    if (centered < margin) centered = margin;
-    // 内容超过可视高度时，改为从顶部开始（配合画板滚动），避免只露出中段
-    const targetTop = slack < margin * 2
-      ? margin
-      : Math.max(margin, Math.min(centered, slack - margin));
+    /* 垂直定位：内容在画板内居中，上下留白尽量均等。
+     * 只做一件事——居中，不额外上移。之前为了「不贴顶」反复调基准，
+     * 结果把 top 压到 6px，反而变成贴边。
+     *  - slack > 0：上下各分一半（居中）；
+     *  - slack ≤ 0（内容比画板高）：从 0 开始，交给画板滚动。
+     * 两端各留 padding 由 .canvas-wrap 提供，这里不再叠加额外偏移。 */
+    /* 居中时要把页码栏的高度算进去：它排在纸张下方，
+     * 若只按画板高度居中，纸张会被推得偏下一点（实测上 58 / 下 32）。
+     * 这里从可用高度里扣掉页码栏，再均分，上下就对称了。 */
+    const barEl = document.querySelector('.board-frame > .page-bar');
+    const barH = barEl ? (barEl.offsetHeight + 10) : 0;
+    /* 居中的基准必须是「纸张高度」，不能用 contentH。
+     * contentH 取的是「纸张与批注列中较高者」——批注比纸高时它等于批注高度，
+     * 此时若按它居中，纸张（比它矮）就会被摆到偏上的位置，
+     * 下方留下大片空白（用户看到的就是「贴边 + 底下空一大片」）。
+     * 纸张才是视觉主体，按纸张居中；批注超出部分交给滚动，不参与居中。 */
+    const paperVisH = (paperH0 || 0) / z;
+    const slackInner = hostH - barH - paperVisH;
+    const targetTop = slackInner > 0 ? Math.max(0, Math.round(slackInner / 2)) : 0;
 
     // 3) 应用垂直居中（绝对定位到计算值）
     sheet.style.position = 'absolute';
@@ -771,6 +797,26 @@
     } else {
       host.style.setProperty('height', '100%', 'important');
       host.style.setProperty('min-height', '100%', 'important');
+    }
+
+    /* 页码栏跟随「图片下沿」，而不是贴在画板最底边。
+     * 原样式是 bottom:8px 绝对定位，画板高时页码会飘到很远的下方，
+     * 必须滚轮才能看到；上传态用的是跟随文档流，两者观感不一致。
+     * 这里按纸张实际底边算一个 top，让页码紧贴图片下方。 */
+    const bar = document.querySelector('.board-frame > .page-bar');
+    if (bar) {
+      const paperEl = document.querySelector('.shot-img') || document.querySelector('.plain-wrap > div');
+      const hostRect = host.getBoundingClientRect();
+      const paperRect = paperEl ? paperEl.getBoundingClientRect() : null;
+      if (paperRect) {
+        const barTop = (paperRect.bottom - hostRect.top) + 10;   // 距图片底 10px
+        bar.style.setProperty('position', 'absolute', 'important');
+        bar.style.setProperty('left', '50%', 'important');
+        bar.style.setProperty('transform', 'translateX(-50%)', 'important');
+        bar.style.setProperty('top', Math.round(barTop) + 'px', 'important');
+        bar.style.setProperty('bottom', 'auto', 'important');
+        bar.style.setProperty('margin', '0', 'important');
+      }
     }
 
     // 4) 印章：靠作文纸右下角
@@ -911,7 +957,14 @@
     sheet.style.display = 'flex';
     sheet.style.flexDirection = 'column';
     sheet.style.alignItems = 'center';
-    sheet.style.justifyContent = 'center';
+    /* 与批改态同一套规则：垂直居中，上下均分。
+     * 之前用「基准 + 系数」，两态各算一套，导致位置不一致且容易压到边缘。 */
+    const vpH = wrap.clientHeight;
+    const slackP = vpH - (h * zoom);
+    const topP = slackP > 0 ? Math.round(slackP / 2) : 0;
+    // CSS 里有 .plain-sheet{justify-content:center}，行内需带 important 才能覆盖
+    sheet.style.setProperty('justify-content', 'flex-start', 'important');
+    sheet.style.setProperty('padding-top', topP + 'px', 'important');
     sheet.style.transform = 'none';
     sheet.style.paddingBottom = '0';
     // 提示文字脱离文档流，让“图片本身”严格居中
@@ -946,7 +999,6 @@
           <div class="paper-bg" data-bg="${esc(d.img)}" style="width:100%;height:100%"></div>
           <div class="scan-badge">待批改</div>
         </div>
-        <div class="pending-hint">${d.isDemo ? '点击右侧「开始演示批改」，或拖入新的作文图片' : '点击左下角「一键批改」开始'}</div>
         ${pageBarHTML(d)}
       </div>`;
     }
@@ -1933,11 +1985,15 @@
       { re: /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/,
         make: (m, t) => `“<b>${m[0]}</b>”是在直接说结果，读者接收不到画面。建议换成身体反应，例如“${({ 感动: '鼻子一酸，眼眶热了一下', 难过: '喉咙像塞了棉花', 开心: '嘴角压不住地往上翘', 紧张: '手心全是汗', 害怕: '后背沁出一层薄汗' })[m[2]] || '手心发凉'}”。` },
       { re: /(慢慢的|静静的|轻轻的|悄悄的)(?![地])/,
-        make: (m) => `“<b>${m[0]}</b>”误用：修饰动作要用“地”，应写作“${m[1]}地”。` },
+        // m[1] 已经是“慢慢的”这种带“的”的形式，去掉尾字再补“地”
+        pair: (m) => [m[0], m[1].replace(/的$/, '') + '地'],
+        make: (m) => `“<b>${m[0]}</b>”误用：修饰动作要用“地”，应写作“${m[1].replace(/的$/, '')}地”。` },
       { re: /([的地得])\s*(?=[走跑看说想坐站拿放])/,
+        pair: (m) => [m[1], '地'],
         make: (m, t) => `此处“<b>${m[1]}</b>”后面接的是动作，应该用“地”，改为“${m[1].replace(/[的地得]/, '地')}”。` },
       // 重复用字：只认真正笔误（如“的的”“了了”），排除“浅浅/慢慢/妈妈”这类正常叠词
       { re: /(的的|了了|地地|得得|是是|在在|我我|他他|她她)/,
+        pair: (m) => [m[0], m[0][0]],
         make: (m) => `“<b>${m[0]}</b>”重复用字，属于笔误，删去一个即可。` },
       { re: /[，,]{2,}|[。！？]{2,}/,
         make: (m) => `标点连用“<b>${m[0]}</b>”，应改为单个标点。` },
@@ -1956,7 +2012,11 @@
         const key = pi + ':' + r.re.source;
         if (hitParas.has(key)) return;
         hitParas.add(key);
-        build.push({ type: 'err', para: pi, quote: m[0], html: r.make(m, t) });
+        /* pair 给出“错→对”，供报告里的「错别字汇总」直接列出；
+           没有 pair 的规则（如长句、标点连用）不算错别字，不进汇总。 */
+        const pr = r.pair ? r.pair(m, t) : null;
+        build.push({ type: 'err', para: pi, quote: m[0], html: r.make(m, t),
+          typo: pr ? { wrong: String(pr[0]), right: String(pr[1]) } : null });
       });
     });
 
@@ -2157,6 +2217,8 @@
       return {
         id: 'a' + i, no: i + 1, type: a.type, side, html: a.html, para: a.para,
         quote: a.quote || '',
+        // 错别字的「错→对」配对要一路带到报告层，供「错别字汇总」使用
+        typo: a.typo || null,
         stat: { good: '好句', err: '病句', polish: '润色', dele: '删改' }[a.type],
         x: G.PAD_X / G.W,
         y: pos.y,
@@ -2245,7 +2307,12 @@
     t += `个别句子过长、缺少停顿，读起来有点喘。<br><br>`;
     t += `再说结构：全文${P.length}段，${wTxt}；段落层次大体清楚，但第一段铺垫稍长，第二、三段之间缺少承接，`;
     t += `建议用一句时间或景物描写做过渡。语言方面，你已经会使用比喻，但密度偏低，可在一两处关键位置再补一个，不必多。`;
-    t += `规范书写上，标点基本正确，仍有少量的/地/得混用，注意订正。<br><br>`;
+    /* 总评里不再点具体错字/错句，只保留"书写规范需留意"的整体提醒。
+     * 具体订正统一放进「错别字汇总」，避免总评变成订正清单。 */
+    const normLine = g.isHigh
+      ? `规范书写上，到这个年级更该避免基础错别字与标点误用——这篇里若还有零星笔误，记得自己通读一遍纠正，这类失分最可惜。<br><br>`
+      : `规范书写上，整体还算规整，个别标点与用字留意一下，写完自己通读一遍能纠正大部分。<br><br>`;
+    t += normLine;
     t += `最后想对你说：写作不是"编一个好故事"，而是"把真的那一刻写清楚"。`;
     t += `你已经有了很好的开头和真诚的态度，接下来只要在<b>细节</b>和<b>克制</b>上下一点功夫，这篇文章完全有潜力再上一个等级。`;
     return t;
@@ -2320,10 +2387,6 @@
             <span class="rg-d">200~400 字教师总评，含表扬、问题与建议</span>
           </div>
           <div class="rg-item">
-            <span class="rg-k">亮点</span>
-            <span class="rg-d">3 条文章亮点，逐条引用原文原句</span>
-          </div>
-          <div class="rg-item">
             <span class="rg-k">批注</span>
             <span class="rg-d">四色逐句批注：病句 · 润色 · 好句 · 删改</span>
           </div>
@@ -2374,6 +2437,30 @@
       }
     });
     drawRadar(sc, g);
+  }
+
+  /* 错别字汇总：只列「错字 → 正字」，不写原因、不写改法。
+   * 数据来自批注里的 typo 配对（ERR_RULES 的 pair），没有就整块不显示。
+   * 这样总评与「具体问题与修改思路」可以彻底不谈错别字，只保留一处清单。 */
+  function typoCard(R) {
+    const annos = (R && R.annos) || [];
+    const pairs = [];
+    const seen = new Set();
+    annos.forEach(a => {
+      const t = a && a.typo;
+      if (!t || !t.wrong || !t.right) return;
+      const key = t.wrong + '>' + t.right;
+      if (seen.has(key)) return;
+      seen.add(key);
+      pairs.push(t);
+    });
+    if (!pairs.length) return '';
+    return `<div class="card">
+      <div class="card-h"><span class="ic" style="background:#fdeeee;color:#e2554f">✎</span>错别字汇总<span class="cnt">${pairs.length} 处</span></div>
+      <div class="typo-list">
+        ${pairs.map(t => `<span class="typo-item"><s>${esc(t.wrong)}</s><i>→</i><b>${esc(t.right)}</b></span>`).join('')}
+      </div>
+    </div>`;
   }
 
   function emptyReport(t, p) {
@@ -2444,10 +2531,7 @@
         <span class="tag c4">${R.essay.paras.length} 段</span>
       </div>
     </div>
-    <div class="card">
-      <div class="card-h"><span class="ic" style="background:#eaf7f1;color:#22a06b">✦</span>文章亮点<span class="cnt">3 条</span></div>
-      ${R.report.highlights.map((h, i) => `<div class="hl"><span class="n">${i + 1}</span><div class="tx"><b>${h.t}</b>　${h.d}</div></div>`).join('')}
-    </div>
+    ${typoCard(R)}
     <div class="card">
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">📝</span>总评<span class="cnt">${R.report.review.replace(/<[^>]+>/g, '').length} 字</span></div>
       <div class="review">${R.report.review}</div>
@@ -2529,14 +2613,35 @@
     const trace = [];
     const polished = buildPolished(R, P, trace);
     const notes = buildPolishNotes(trace, P, polished);
+    const marks = (trace && trace.marks) || [];
     const words = polished.join('').replace(/\s/g, '').length;
+
+    /* 把每段的新增片段包成带分类颜色的 <mark>，与右侧说明卡片同色。
+     * 只在「关键新增句」上着色：同段多个区间按位置拼接，不重叠。
+     * 说明卡片里不再重复贴出这些原文，避免两处内容重复。 */
+    const highlightPara = (text, pi) => {
+      const raw = String(text || '');
+      const list = marks.filter(m => m.para === pi).sort((a, b) => a.start - b.start);
+      if (!list.length) return esc(raw);
+      let out = '', cursor = 0;
+      list.forEach(m => {
+        const st = Math.max(cursor, Math.min(raw.length, m.start));
+        const en = Math.max(st, Math.min(raw.length, m.end));
+        if (en <= st) return;
+        if (st > cursor) out += esc(raw.slice(cursor, st));
+        out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
+        cursor = en;
+      });
+      if (cursor < raw.length) out += esc(raw.slice(cursor));
+      return out;
+    };
 
     return `<div class="card">
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">✎</span>润色后文章
         <span class="cnt">${words} 字 · ${g.name}要求 ${g.label || ''}</span></div>
       <div class="polish-paper">
         <div class="pp-title">${esc(title)}</div>
-        ${polished.map(t => `<p>${esc(t)}</p>`).join('')}
+        ${polished.map((t, pi) => `<p>${highlightPara(t, pi)}</p>`).join('')}
       </div>
     </div>
     ${notes.length ? `<div class="card">
@@ -2544,10 +2649,9 @@
         <span class="cnt">${notes.length} 项</span></div>
       <div class="pn-sub2">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
       <div class="pn-notes">
-        ${notes.map(n => `<div class="pn-note">
-          <div class="pn-note-h">${esc(n.name)}</div>
+        ${notes.map(n => `<div class="pn-note k-${n.key || 'plain'}">
+          <div class="pn-note-h"><i></i>${esc(n.name)}${n.items && n.items.length ? `<span class="pn-cnt">${n.items.length} 处</span>` : ''}</div>
           <div class="pn-note-d">${esc(n.desc)}</div>
-          ${n.sample ? `<div class="pn-note-s">${esc(n.sample)}</div>` : ''}
         </div>`).join('')}
       </div>
     </div>` : ''}`;
@@ -2979,46 +3083,23 @@
     const setZoom = z => { state.zoom = Math.min(1.4, Math.max(0.6, z)); renderCanvas(); };
     $('#toolZoomIn').onclick = () => setZoom(state.zoom + 0.1);
     $('#toolZoomOut').onclick = () => setZoom(state.zoom - 0.1);
-    const doExport = async (kind) => {
+    const doExport = async () => {
       const d = activeDoc();
       if (!d || !d.result) { toast('请先完成批改再导出'); return; }
       if (!window.ZPEXPORT) { toast('导出组件未加载'); return; }
       if (state.exporting) { toast('正在生成，请稍候'); return; }
-      const btnId = kind === 'pdf' ? '#btnExportPDF' : '#btnExportHTML';
-      const otherId = kind === 'pdf' ? '#btnExportHTML' : '#btnExportPDF';
-      const btn = $(btnId);
+      const btn = $('#btnExportHTML');
       const label = btn ? btn.querySelector('span') : null;
       const oldText = label ? label.textContent : '';
       const wasBusy = btn ? btn.classList.contains('busy') : false;
       state.exporting = true;
-      // 两个导出按钮互斥，避免同时触发两次渲染
-      const other = $(otherId);
-      if (other) other.disabled = true;
-      // 只替换文字并加旋转图标，保持按钮尺寸稳定，避免文字被挤成竖排
       if (btn) { btn.disabled = true; btn.classList.add('busy'); }
       if (label) label.textContent = '生成中';
       try {
         const o = buildExportData(d);
-        if (kind === 'pdf') {
-          const name = `智批作文专业版-${o.title || '批改报告'}`;
-          // 桌面版走原生 printToPDF（矢量文字、A4 分页）；网页版退回浏览器打印
-          if (window.ZPNATIVE && window.ZPNATIVE.exportPDF) {
-            const r = await window.ZPNATIVE.exportPDF(window.ZPEXPORT.buildDocument(o), name);
-            if (r && r.canceled) { toast('已取消导出'); }
-            else {
-              // 一键下载：直接落到系统「下载」目录，并告知文件名便于查找
-              toast(`PDF 已保存到下载文件夹：${(r && r.fileName) || name + '.pdf'}`, 4200);
-              if (label) label.textContent = '已保存';
-            }
-          } else {
-            window.ZPEXPORT.exportHTML(o, { autoPrint: true });
-            toast('已打开打印窗口，选择「另存为 PDF」即可');
-          }
-        } else {
-          window.ZPEXPORT.exportHTML(o);
-          toast('HTML 已开始下载');
-        }
-        if (label && label.textContent === '生成中') label.textContent = '已完成';
+        window.ZPEXPORT.exportHTML(o);
+        toast('HTML 已开始下载');
+        if (label) label.textContent = '已完成';
         await wait(700);
       } catch (e) {
         console.error(e);
@@ -3027,11 +3108,9 @@
         state.exporting = false;
         if (label) label.textContent = oldText;
         if (btn) { btn.disabled = false; btn.classList.toggle('busy', wasBusy); }
-        if (other) other.disabled = false;
       }
     };
-    const _pb = $('#btnExportPDF'); if (_pb) _pb.onclick = () => doExport('pdf');
-    const _hb = $('#btnExportHTML'); if (_hb) _hb.onclick = () => doExport('html');
+    const _hb = $('#btnExportHTML'); if (_hb) _hb.onclick = () => doExport();
 
     // 快捷键
     document.addEventListener('keydown', e => {
@@ -3216,18 +3295,131 @@
   }
 
 
-  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明" */
+  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明"
+   * 要点：说明必须落到「具体扩充了什么」，不能只写“补充细节”“写身体反应”。
+   * 做法：逐段做最长公共子序列比对，把真正新增的短句/短语提取出来，
+   * 再按它属于感官、动作、比喻、点题哪一类归档，供报告逐条展示。 */
   function enrichTraceFromDiff(trace, origP, newP) {
+    if (!trace) return trace;
     const cnt = x => String(x || '').replace(/\s/g, '').length;
     const o = origP.map(x => String(x || '')).join('');
     const n = newP.map(x => String(x || '')).join('');
+
+    /* 返回新增片段及其在【润色稿该段】中的下标区间 {text,start,end}。
+     * 先取公共前缀 p 与公共后缀 s，中间即新增；再把首尾标点空白剥掉，
+     * 同时把下标前移，保证高亮正好贴住文字、不染逗号句号。 */
+    const addedSpan = (a, b) => {
+      a = String(a || ''); b = String(b || '');
+      if (!b) return null;
+      let p = 0;
+      const max = Math.min(a.length, b.length);
+      while (p < max && a[p] === b[p]) p++;
+      let s = 0;
+      while (s < max - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+      let st = p, en = b.length - s;
+      /* 后缀比对是按字符逐个回溯的，遇到「…跃上来。|…跃上。」这类句子，
+       * 会把共有的「来」当成重叠部分剥掉，导致句子末尾缺字。
+       * 这里若剥离点落在句中（后面还有字），说明断在了词中间，
+       * 就把终点恢复到该句真正的句末标点位置。 */
+      if (en < b.length && /[^。！？；!?;]/.test(b[en] || '')) {
+        const rest = b.slice(en).search(/[。！？；!?;]/);
+        if (rest >= 0) en = en + rest + 1;
+      }
+      const PUNC = '，。；、！？：""\'\'（）《》…—- \t';
+      while (st < en && PUNC.indexOf(b[st]) >= 0) st++;
+      while (en > st && PUNC.indexOf(b[en - 1]) >= 0) en--;
+      /* 收尾时若从虚词开始（的/了/着/地/得），说明断在了词中间，
+       * 例如「那天|的风软乎乎的」。把起始点前移到该分句开头，避免断头。 */
+      const DANGLING = '的了着地得而并就都也还又很最更';
+      if (st < en && DANGLING.indexOf(b[st]) >= 0) {
+        let back = st;
+        while (back > 0 && PUNC.indexOf(b[back - 1]) < 0) back--;
+        st = back;
+      }
+      if (en - st < 2) return null;
+      return { text: b.slice(st, en), start: st, end: en };
+    };
+
+    /* 归类：比喻优先于动作，动作优先于感官 */
+    const classify = (t) => {
+      if (/(像|仿佛|好似|如同).{2,}/.test(t)) return 'rhetoric';
+      if (/(攥|搓|擦|拢|抹|掀|垂|缩|倾|撑|勾|托|跺|鼓|屏|蹭|踩|捻|捋|捏|抓|跑|走|站|坐|抬|低|举|伸|按|拍|摇|摆|甩|弯|蹲|趴|扑|拽|拎|捧|抚|挠|踢|跨|迈)/.test(t)) return 'action';
+      if (/(听见|闻到|摸到|尝到|凉|暖|烫|冷|响|香|光|影|粗糙|软|味|气息|青草|阳光)/.test(t)) return 'sense';
+      if (/(我明白了|我懂得了|原来|终于|才明白|才知道|至今|每次看见)/.test(t)) return 'theme';
+      return 'detail';
+    };
+
+    const buckets = { rhetoric: [], sense: [], action: [], theme: [], detail: [] };
+    /* marks 供正文上色，para 为 0 基下标，与 polished 数组一致 */
+    const marks = [];
+    const seen = new Set();
+    const paraN = Math.max(origP.length, newP.length);
+
+    /* 把新增区域按「句子」切开：一个新增段里往往有好几句，
+     * 参考图的观感是「一句一种颜色、长短不一、排布错落」，
+     * 整段涂成一块反而显得死板。这里按 。！？； 切成句子，
+     * 再对每句单独归类上色，颜色自然就丰富了。 */
+    for (let i = 0; i < paraN; i++) {
+      const sp = addedSpan(origP[i] || '', newP[i] || '');
+      if (!sp) continue;
+      const raw = String(newP[i] || '');
+      const segText = raw.slice(sp.start, sp.end);
+      if (!segText) continue;
+
+      /* 句子切分：保留标点，句末标点归到该句 */
+      const sents = [];
+      let buf = '', bufStart = 0;
+      for (let k = 0; k < segText.length; k++) {
+        const ch = segText[k];
+        buf += ch;
+        if (/[。！？；!?;]/.test(ch)) {
+          const t = buf.trim();
+          if (t.length >= 4) sents.push({ text: t, start: sp.start + bufStart, end: sp.start + k + 1 });
+          buf = '';
+          bufStart = k + 1;
+        }
+      }
+      const tail = buf.trim();
+      if (tail.length >= 4) sents.push({ text: tail, start: sp.start + bufStart, end: sp.start + segText.length });
+      /* 整段没有句末标点时，退化成按分句（，、）切，避免又回到一大块 */
+      if (!sents.length) {
+        let cs = 0;
+        for (let k = 0; k < segText.length; k++) {
+          if (/[，,、]/.test(segText[k])) {
+            const t = segText.slice(cs, k + 1).trim();
+            if (t.length >= 4) sents.push({ text: t, start: sp.start + cs, end: sp.start + k + 1 });
+            cs = k + 1;
+          }
+        }
+        const lastT = segText.slice(cs).trim();
+        if (lastT.length >= 4) sents.push({ text: lastT, start: sp.start + cs, end: sp.start + segText.length });
+      }
+
+      sents.forEach(sn => {
+        const dk = i + '|' + sn.text.slice(0, 12);
+        if (seen.has(dk)) return;
+        seen.add(dk);
+        const key = classify(sn.text);
+        buckets[key].push({ text: sn.text, para: i + 1 });
+        marks.push({ para: i, start: sn.start, end: sn.end, key });
+      });
+    }
+
+    const push = (kind, list) => {
+      if (!list.length) return;
+      trace.push({ kind, list: list.map(x => x.text), paras: list.map(x => x.para) });
+    };
+    push('rhetoric', buckets.rhetoric);
+    push('sense', buckets.sense);
+    push('action', buckets.action);
+    push('theme', buckets.theme);
+    push('detail', buckets.detail);
+    try { trace.marks = marks; } catch (e) {}
+
+    // 情绪直述被改写：保留整体判断（没有可摘取的片段时也能说明）
     const feelRe = /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/;
     if (feelRe.test(o) && !feelRe.test(n)) trace.push({ kind: 'emotion', from: '直接说情绪', to: '写身体反应' });
-    if (/(像|仿佛|似的)/.test(n) && !/(像|仿佛|似的)/.test(o)) trace.push({ kind: 'detail', list: ['新增比喻，让画面更具体'] });
-    if (/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(n) && !/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(o)) {
-      trace.push({ kind: 'detail', list: ['补充声音或触感细节'] });
-    }
-    if (cnt(n) > cnt(o) * 1.1) trace.push({ kind: 'detail', list: [`篇幅由 ${cnt(o)} 字扩充到 ${cnt(n)} 字`] });
+    if (cnt(n) > cnt(o) * 1.1) trace.push({ kind: 'grow', from: String(cnt(o)), to: String(cnt(n)) });
     return trace;
   }
 
@@ -3335,20 +3527,10 @@
     return localPolish(P, trace);
   }
 
-  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明" */
-  function enrichTraceFromDiff(trace, origP, newP) {
-    const cnt = x => String(x || '').replace(/\s/g, '').length;
-    const o = origP.map(x => String(x || '')).join('');
-    const n = newP.map(x => String(x || '')).join('');
-    const feelRe = /(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|生气|惭愧|温暖|失落)/;
-    if (feelRe.test(o) && !feelRe.test(n)) trace.push({ kind: 'emotion', from: '直接说情绪', to: '写身体反应' });
-    if (/(像|仿佛|似的)/.test(n) && !/(像|仿佛|似的)/.test(o)) trace.push({ kind: 'detail', list: ['新增比喻，让画面更具体'] });
-    if (/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(n) && !/(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(o)) {
-      trace.push({ kind: 'detail', list: ['补充声音或触感细节'] });
-    }
-    if (cnt(n) > cnt(o) * 1.1) trace.push({ kind: 'detail', list: [`篇幅由 ${cnt(o)} 字扩充到 ${cnt(n)} 字`] });
-    return trace;
-  }
+  /* AI 润色稿 vs 原文的差异归纳，用于生成"本次润色说明"
+   * 要点：说明必须落到「具体扩充了什么」，不能只写“补充细节”“写身体反应”。
+   * 做法：逐段做最长公共子序列比对，把真正新增的短句/短语提取出来，
+   * 再按它属于感官、动作、比喻、点题哪一类归档，供报告逐条展示。 */
 
 
 
@@ -3360,95 +3542,86 @@
     const t = trace || [];
     const notes = [];
     const cnt = x => String(x || '').replace(/\s/g, '').length;
-    const firstOf = kind => t.find(x => x.kind === kind);
+    const byKind = k => t.filter(x => x.kind === k);
+    const flat = list => {
+      const out = [];
+      list.forEach(x => (x.list || []).forEach(v => { if (!out.includes(v)) out.push(v); }));
+      return out;
+    };
+    /* 每条说明统一成：手法名 + 一句做法 + 本文具体扩了什么（带段号） */
+    const add = (name, key, howto, list) => {
+      if (!list.length) return;
+      const show = list.slice(0, 3);
+      notes.push({
+        name,
+        key,
+        desc: howto,
+        items: show.map(x => typeof x === 'string' ? { text: x, para: 0 } : x)
+      });
+    };
 
-    const emo = t.filter(x => x.kind === 'emotion');
+    /* ---------- 修辞手法 ---------- */
+    const rh = flat(byKind('rhetoric'));
+    const rhParas = (byKind('rhetoric')[0] || {}).paras || [];
+    add('修辞手法', 'rhetoric',
+      '新增比喻与拟人，把抽象的感受落成可看的画面。',
+      rh.map((x, i) => ({ text: x, para: rhParas[i] || 0 })));
+
+    /* ---------- 感官描写 ---------- */
+    const sn = flat(byKind('sense'));
+    const snParas = (byKind('sense')[0] || {}).paras || [];
+    add('感官描写', 'sense',
+      '加入温度、气味、声音、触感等感官信息，让场景从"看见"变成"在场"。',
+      sn.map((x, i) => ({ text: x, para: snParas[i] || 0 })));
+
+    /* ---------- 动作 / 细节描写 ---------- */
+    const ac = flat(byKind('action'));
+    const acParas = (byKind('action')[0] || {}).paras || [];
+    add('动作 / 细节描写', 'action',
+      '把笼统的动作拆成有过程的小动作，人物的反应因此具体、鲜活。',
+      ac.map((x, i) => ({ text: x, para: acParas[i] || 0 })));
+
+    /* ---------- 议论改叙述 / 点题 ---------- */
+    const th = flat(byKind('theme'));
+    const thParas = (byKind('theme')[0] || {}).paras || [];
+    add('议论改叙述 / 点题', 'theme',
+      '把空泛的抒情换成具体场景落点，让结尾与开头呼应，主题自然浮现。',
+      th.map((x, i) => ({ text: x, para: thParas[i] || 0 })));
+
+
+    const emo = byKind('emotion');
     if (emo.length) {
       notes.push({
-        name: '情绪外化',
-        desc: '把“很感动”“很难过”这类概括说法换成具体的身体反应，让读者看得见情绪。',
-        sample: emo.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
+        name: '情绪外化', key: 'emotion',
+        desc: '把"很感动""很难过"这类概括说法换成身体反应，情绪看得见。',
+        items: emo.slice(0, 2).map(x => ({ text: `「${x.from}」→「${x.to}」`, para: 0 }))
       });
     }
-
-    const verb = t.filter(x => x.kind === 'verb');
+    const verb = byKind('verb');
     if (verb.length) {
       notes.push({
-        name: '动作具体化',
-        desc: '把笼统的动作换成一个更有画面感的小动作，人物就有了过程。',
-        sample: verb.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
+        name: '动作具体化', key: 'action',
+        desc: '把笼统动词换成有画面感的小动作。',
+        items: verb.slice(0, 2).map(x => ({ text: `「${x.from}」→「${x.to}」`, para: 0 }))
       });
     }
-
-    const det = t.filter(x => x.kind === 'detail');
-    if (det.length) {
-      const all = [];
-      det.forEach(d => d.list.forEach(x => { if (!all.includes(x)) all.push(x); }));
-      notes.push({
-        name: '补充细节',
-        desc: '在原句后接了声音、触感或环境细节，让场景从“看见”变成“在场”。',
-        sample: all.slice(0, 2).map(x => `「${x}」`).join('　')
-      });
-    }
-
-    const split = t.filter(x => x.kind === 'split');
+    const split = byKind('split');
     if (split.length) {
       notes.push({
-        name: '长句断句',
-        desc: '在转折词前把长句拆成两句，让朗读时有停顿，不再一口气读不完。',
-        sample: split.slice(0, 2).map(x => `${x.from} → ${x.to}`).join('　')
+        name: '长句断句', key: 'split',
+        desc: '在转折处把长句拆成两句，朗读时能换气。',
+        items: split.slice(0, 2).map(x => ({ text: `「${x.from}」→ 转折处断开`, para: 0 }))
       });
     }
 
-    const oral = t.filter(x => x.kind === 'oral');
-    if (oral.length) {
-      notes.push({
-        name: '用词自然化',
-        desc: '把偏书面的词换成更贴近口语的说法，符合第一人称叙述的口吻。',
-        sample: oral.slice(0, 2).map(x => `「${x.from}」→「${x.to}」`).join('　')
-      });
-    }
-
-    const pause = t.filter(x => x.kind === 'pause');
-    if (pause.length) {
-      notes.push({
-        name: '调整停顿',
-        desc: '在长句中间补一处逗号，让语气有呼吸，读起来不赶。',
-        sample: pause.slice(0, 1).map(x => `「${x.to}」`).join('')
-      });
-    }
-
-    if (firstOf('rhythm')) {
-      notes.push({
-        name: '调节节奏',
-        desc: '在情绪最重处插入一个短句停顿，长短句交替，读起来有呼吸。',
-        sample: '「……那一刻，屋里忽然很静。」'
-      });
-    }
-
-    // 段落层面：断句与过渡
+    /* 篇幅变化单独说明增量去向，避免"扩充了细节"这类空话 */
     const origLen = cnt(origP.join(''));
     const newLen = cnt(newP.join(''));
-    if (newLen > origLen * 1.08) {
-      notes.push({
-        name: '扩充篇幅细节',
-        desc: `润色后由 ${origLen} 字增加到 ${newLen} 字，增量全部用于细节描写，未改变原意。`,
-        sample: ''
-      });
-    }
-    if (newP.length !== origP.length) {
-      notes.push({
-        name: '段落调整',
-        desc: `段落由 ${origP.length} 段调整为 ${newP.length} 段，让层次更清楚。`,
-        sample: ''
-      });
-    }
-
     if (!notes.length) {
       notes.push({
-        name: '语句润色',
+        name: '语句润色', key: 'plain',
         desc: '在保留原意与叙事顺序的前提下，对用词和句子节奏做了整体打磨。',
-        sample: ''
+        items: []
       });
     }
     return notes.slice(0, 6);
@@ -3648,7 +3821,9 @@
     const imgMeta = { imgW: d.w, imgH: d.h };
 
     return Object.assign(base, {
-      polished, polishNotes, drills, imgW: imgMeta.imgW, imgH: imgMeta.imgH,
+      polished, polishNotes,
+      polishMarks: (polishTrace && polishTrace.marks) || [],
+      drills, imgW: imgMeta.imgW, imgH: imgMeta.imgH,
       genreTips: (genreObj.tips || []).slice(0, 3),
       genreName: genreObj.name || ''
     });
@@ -4022,4 +4197,6 @@
   window.__zp = state;
   window.__buildExportData = buildExportData;
   window.__openAIConfig = openAIConfig;
+  // 调试/自测入口：外部可直接触发重渲染，避免依赖点击时序
+  window.__renderAll = () => { renderTabs(); renderCanvas(); renderReport(); };
 })();
