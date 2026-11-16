@@ -1,6 +1,7 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 /* ===== 用户数据目录（必须在 app ready 之前设置）=====
  * Electron 默认用 productName 作为 %APPDATA% 下的目录名。同一台电脑装两个
@@ -33,10 +34,10 @@ function migrateLegacyData(targetDir) {
       fs.mkdirSync(targetDir, { recursive: true });
       // 只搬 Local Storage（历史记录就在这里），其余缓存不必复制
       fs.cpSync(fromLS, targetLS, { recursive: true, force: false, errorOnExist: false });
-      console.log('[智批] 已从旧目录迁移历史数据:', from);
+      console.log('[紫微星] 已从旧目录迁移历史数据:', from);
       return;
     } catch (e) {
-      console.error('[智批] 旧数据迁移跳过:', e && e.message);
+      console.error('[紫微星] 旧数据迁移跳过:', e && e.message);
     }
   }
 }
@@ -48,7 +49,7 @@ try {
   app.setPath('userData', dir);
 } catch (e) {
   // 设置失败就退回默认目录，不能让启动因此中断
-  console.error('[智批] 用户数据目录设置失败，回退默认:', e && e.message);
+  console.error('[紫微星] 用户数据目录设置失败，回退默认:', e && e.message);
 }
 
 let mainWindow;
@@ -81,7 +82,7 @@ function createMainWindow() {
     minWidth: 1200,
     minHeight: 760,
     show: false,
-    title: '智批作文专业版',
+    title: '紫微星',
     // 窗口底色与页面一致：Windows 11 圆角外侧由系统合成，
     // 若底色偏深会在四角形成黑色三角/包边。
     backgroundColor: '#f5f6fa',
@@ -121,60 +122,73 @@ function createMainWindow() {
   });
 }
 
-/* ===== PDF 导出 =====
- * 用 Electron 自带的 printToPDF 渲染，而不是 html2canvas 截图：
- * 截图式 PDF 是位图，文字放大会糊、也不能复制检索，A4 处还常把内容拦腰切断。
- * printToPDF 输出矢量文字，配合导出文档里已有的 @media print 规则可获得
- * 自然的 A4 分页。
+/* ===== PDF · 一键导出 =====
+ * 流程：点击按钮 → 立即弹原生「保存到」对话框 → 用户选好位置点保存 →
+ * 隐藏窗口后台排版 + printToPDF 渲染 → 直接写盘 → 返回路径给页面提示。
+ * 全程不出现打印界面。用 printToPDF 而不是 html2canvas 截图：
+ * 截图式 PDF 是位图，文字放大会糊、也不能复制检索；printToPDF 输出矢量文字，
+ * 配合导出文档里的 @media print 规则获得自然的 A4 分页。
  */
-/* 直接下载：存到系统「下载」目录，文件名重名时自动加 (1)(2)，不弹保存框。
- * 这样点一下按钮就落盘，符合「一键导出」的预期。 */
-function uniquePath(dir, base) {
-  let p = path.join(dir, base + '.pdf');
-  let i = 1;
-  while (fs.existsSync(p)) p = path.join(dir, `${base} (${i++}).pdf`);
-  return p;
-}
-
 async function exportPdf({ html, suggestName }) {
   if (typeof html !== 'string' || html.length < 200) throw new Error('导出内容为空');
   const safe = String(suggestName || '作文批改报告')
     .replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 60) || '作文批改报告';
 
-  const dir = app.getPath('downloads');
-  const filePath = uniquePath(dir, safe);
+  // ① 先弹「保存到」：用户决定位置与文件名，取消则整个流程静默结束
+  const picked = await dialog.showSaveDialog(mainWindow, {
+    title: '导出 PDF 报告',
+    defaultPath: path.join(app.getPath('downloads'), safe + '.pdf'),
+    filters: [{ name: 'PDF 文档', extensions: ['pdf'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation']
+  });
+  if (picked.canceled || !picked.filePath) return { canceled: true };
+  let filePath = picked.filePath;
+  if (!/\.pdf$/i.test(filePath)) filePath += '.pdf';
 
-  // 隐藏窗口离屏渲染：不闪窗、不影响用户当前画面
+  // ② 隐藏窗口离屏渲染：不闪窗、不影响用户当前画面
+  // 宽度对齐 A4 内容宽（794px @96dpi），白板测量脚本按此宽度摆卡
   const win = new BrowserWindow({
     show: false,
-    width: 900,
-    height: 1200,
+    width: 794,
+    height: 1123,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
+  // 真实作文带整页照片，HTML 可达数 MB，data:URL 会超出 Chromium 2MB 上限
+  // （ERR_INVALID_URL，页面显示成乱码般的 URL 编码文本）。改写临时文件加载。
+  const tmpFile = path.join(os.tmpdir(), `zhipi-pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
   try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    // 等图片与字体就绪，否则首屏会是空白或半张图
+    fs.writeFileSync(tmpFile, html, 'utf8');
+    await win.loadFile(tmpFile);
+    // 等图片、字体与导出文档自带的排版脚本全部就绪（脚本完成时置 __zpLayoutDone）
     await win.webContents.executeJavaScript(`
       (async () => {
         const imgs = [...document.images];
         await Promise.all(imgs.map(i => i.complete ? Promise.resolve()
           : new Promise(r => { i.onload = r; i.onerror = r; })));
         if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+        // 排版脚本最晚在 load 后 900ms 完成最后一轮摆卡，这里等它的完成标记
+        const t0 = Date.now();
+        while (!window.__zpLayoutDone && Date.now() - t0 < 4000) {
+          await new Promise(r => setTimeout(r, 60));
+        }
         return true;
       })()
     `, true);
-    await new Promise(r => setTimeout(r, 350));   // 给排版稳定留一点时间
+    await new Promise(r => setTimeout(r, 200));   // 给最后一帧渲染留余量
 
+    // ③ 后台生成 PDF（无任何打印对话框）
     const data = await win.webContents.printToPDF({
       pageSize: 'A4',
       printBackground: true,        // 背景色/圆角卡片/彩色表头都靠它
       preferCSSPageSize: true,      // 尊重导出文档里的 @page 设置
       margins: { marginType: 'default' }
     });
+    // ④ 直接写盘到用户选定的位置
     fs.writeFileSync(filePath, data);
-    return { canceled: false, filePath, fileName: path.basename(filePath), dir };
+    return { canceled: false, filePath, fileName: path.basename(filePath), dir: path.dirname(filePath) };
   } finally {
     if (!win.isDestroyed()) win.destroy();
+    try { fs.unlinkSync(tmpFile); } catch (e) { /* 临时文件清理失败不影响导出 */ }
   }
 }
 
@@ -185,6 +199,33 @@ ipcMain.handle('zhipi:export-pdf', async (event, payload) => {
   }
   const body = payload && typeof payload === 'object' ? payload : {};
   return exportPdf({ html: body.html, suggestName: body.suggestName });
+});
+
+/* ===== HTML 报告 · 保存到自选位置 =====
+ * 与 PDF 同一交互：先弹原生「保存到」对话框，用户选好位置点保存后直接写盘。
+ * 不再走浏览器自动下载（那会固定落到下载目录，用户无法选位置）。 */
+ipcMain.handle('zhipi:save-html', async (event, payload) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error('非法来源');
+  }
+  const body = payload && typeof payload === 'object' ? payload : {};
+  const html = body.html;
+  if (typeof html !== 'string' || html.length < 200) throw new Error('导出内容为空');
+  const safe = String(body.suggestName || '作文批改报告')
+    .replace(/[\\/:*?"<>|\r\n]/g, '_').slice(0, 60) || '作文批改报告';
+
+  const picked = await dialog.showSaveDialog(mainWindow, {
+    title: '导出 HTML 报告',
+    defaultPath: path.join(app.getPath('downloads'), safe + '.html'),
+    filters: [{ name: 'HTML 网页', extensions: ['html', 'htm'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation']
+  });
+  if (picked.canceled || !picked.filePath) return { canceled: true };
+  let filePath = picked.filePath;
+  if (!/\.html?$/i.test(filePath)) filePath += '.html';
+  // 带 BOM：Windows 记事本/旧浏览器直接双击打开不乱码
+  fs.writeFileSync(filePath, '\ufeff' + html, 'utf8');
+  return { canceled: false, filePath, fileName: path.basename(filePath), dir: path.dirname(filePath) };
 });
 
 app.whenReady().then(() => {

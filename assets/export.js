@@ -1,4 +1,4 @@
-/* ===== 智批作文 · 导出模块（HTML · A4 分页 / 一键直下） =====
+/* ===== 紫微星 · 导出模块（HTML · A4 分页 / 一键直下） =====
  * 自包含单文件 HTML，每页一个 A4 容器，点击即下载
  */
 (function (global) {
@@ -13,7 +13,7 @@
     const sc = R.score, lv = R.level;
     const P = (R.essay.paras || []).filter(x => x && x.length > 2);
     const g = (window.ZP.GRADES.find(x => x.id === d.gradeId) || { name: '', total: 100, label: '' });
-    const ge = (window.ZP.GENRES.find(x => x.id === d.genreId) || { name: '' });
+    const ge = (window.ZP.genreById ? window.ZP.genreById(d.genreId) : (window.ZP.GENRES.find(x => x.id === d.genreId) || { name: '' }));
     return {
       title: R.essay.title || d.name || '作文批改报告',
       stu: (d.note && d.note !== '未命名') ? d.note : '',
@@ -28,6 +28,10 @@
         title: it.title || it.t || '',
         sev: it.sev || it.severity || 'low',
         desc: it.desc || it.d || it.detail || '',
+        // quote/fix/steps 透传：供「具体问题与修改思路」的改后例句与定制三步思路使用
+        quote: it.quote || '',
+        fix: it.fix || '',
+        steps: Array.isArray(it.steps) ? it.steps.slice() : null,
         ex: it.ex || (it.quote ? `<s>${it.quote}</s>${it.fix ? ' → <b>' + it.fix + '</b>' : ''}` : '')
       })),
       review: R.report.review || '', img: d.img,
@@ -255,31 +259,40 @@
   }
   .ol-row .body .ex em{font-style:normal;color:#8f96a8}
 
-  /* 区块二：问题卡片（浅绿调 + 左侧绿竖条 + 编号标题 → 说明 → 步骤） */
-  /* 区块二标题：普通标题直接接卡片，不套容器（对齐参考排版） */
+  /* 区块二：问题卡片（纸白底 + 靛蓝竖条 + 分区小标题，各部分颜色区分，与界面一致） */
   .fx-head{font-size:14.6px;font-weight:800;color:#2a2c35;margin:18px 0 5px;
-    padding-left:9px;border-left:3.5px solid #35a06a;line-height:1.3}
+    padding-left:9px;border-left:3.5px solid #5b5ce2;line-height:1.3}
   .fx-sub{font-size:10.6px;color:#8f96a8;line-height:1.65;margin:0 0 10px;padding-left:12px}
   .fx-list{margin-top:2px}
   .fx{
-    background:linear-gradient(180deg,#f4fbf7,#fbfefc);
-    border:1px solid #dff0e6;border-left:3.5px solid #35a06a;
+    background:#fff;
+    border:1px solid #e7e9f2;border-left:3.5px solid #5b5ce2;
     border-radius:10px;padding:12px 14px 13px;margin-bottom:10px;
   }
   .fx:last-child{margin-bottom:0}
-  .fx-h{font-size:12.4px;font-weight:800;color:#1f3b2e;line-height:1.7;margin-bottom:5px}
-  .fx-h .n{color:#2f8f60;margin-right:2px}
-  .fx-d{font-size:11.2px;line-height:1.75;color:#5b666f;margin-bottom:8px}
-  .fx-steps{border-top:1px dashed #dcece3;padding-top:8px}
-  .fx-step{display:flex;gap:6px;font-size:11.1px;line-height:1.7;color:#4d5a54;
+  .fx-h{font-size:12.6px;font-weight:800;color:#23263a;line-height:1.7;margin-bottom:7px;
+    display:flex;align-items:baseline;gap:7px}
+  .fx-h .n{flex:0 0 17px;height:17px;border-radius:5px;background:#5b5ce2;color:#fff;
+    font-size:10px;font-weight:800;line-height:17px;text-align:center;align-self:center}
+  .fx-sec{margin-bottom:8px}
+  .fx-sec:last-child{margin-bottom:0}
+  .fx-lb{display:inline-block;font-size:9.6px;font-weight:800;letter-spacing:.6px;
+    padding:2px 8px;border-radius:4px;margin-bottom:5px}
+  .fx-lb.lb-issue{color:#b06a10;background:#fdf3e2}
+  .fx-lb.lb-how{color:#4a4bd8;background:#eeeefc}
+  .fx-lb.lb-demo{color:#0e7f86;background:#e4f5f6}
+  .fx-d{font-size:11.2px;line-height:1.75;color:#8a6a3a}
+  .fx-step{display:flex;gap:7px;font-size:11.2px;line-height:1.7;color:#41466b;
     margin-bottom:4px;align-items:flex-start}
   .fx-step:last-child{margin-bottom:0}
   .fx-step .sn{
-    flex:0 0 14px;height:14px;border-radius:50%;background:#e3f2ea;color:#2f8f60;
+    flex:0 0 14px;height:14px;border-radius:50%;background:#e4e4fa;color:#4a4bd8;
     font-size:9px;font-weight:700;line-height:14px;text-align:center;margin-top:2px;
   }
   .fx-step span:last-child{flex:1;min-width:0;word-break:break-word}
-  .fx-step b{color:#1f7a52;font-weight:700}
+  .fx-step b{color:#4a4bd8;font-weight:700}
+  .fx-fix{font-size:11px;line-height:1.7;padding:6px 9px;border-radius:6px;
+    background:#e9f7f4;color:#0d6e66;font-weight:600;word-break:break-word}
 
   /* ---- 小练笔 ---- */
   .drill{border:1px solid #eef0f6;border-radius:10px;padding:12px 14px;margin-bottom:10px}
@@ -291,16 +304,32 @@
   .drill .t em{font-style:normal;font-size:10.9px;color:#8a90a0;margin-left:5px;font-weight:500}
   .drill .iss{font-size:10.9px;color:#b8730a;background:#fff8ec;border-radius:6px;
     padding:3px 8px;margin-bottom:7px;display:inline-block;line-height:1.5}
-  /* 三行色块：问题（橙）/ 思路（绿）/ 例子（蓝） */
+  .drill-note{font-size:11px;line-height:1.7;color:#7c8497;background:#f7f8fc;
+    border:1px solid #eef0f6;border-radius:8px;padding:8px 11px;margin:0 0 10px}
+  /* 分区色块：练什么（琥珀）/ 怎么写（靛蓝）/ 素材积累（纸白列表）/ 练笔任务（青绿） */
   .drill .r{font-size:11.3px;line-height:1.72;color:#4a4d57;display:flex;gap:8px;
     align-items:flex-start;border-radius:7px;padding:7px 10px;margin-bottom:6px}
-  .drill .r .kk{flex:0 0 auto;font-size:9.4px;font-weight:800;
+  .drill .r .kk,.drill .mat .kk{flex:0 0 auto;font-size:9.4px;font-weight:800;
     border-radius:4px;padding:1.5px 6px;line-height:1.5;margin-top:1px;white-space:nowrap}
   .drill .r span:last-child{flex:1;min-width:0;word-break:break-word}
   .drill .r.prob{background:#fdf4e9;border-left:3px solid #e8a33d}
   .drill .r.prob .kk{color:#b8730a;background:#fbe8cd}
-  .drill .r.idea{background:#ecf7ef;border-left:3px solid #4aa96c}
-  .drill .r.idea .kk{color:#2f7d4f;background:#d8efe0}
+  .drill .r.prob span:last-child{color:#8a6a3a}
+  .drill .r.idea{background:#eeeefc;border-left:3px solid #5b5ce2}
+  .drill .r.idea .kk{color:#4a4bd8;background:#e0e0f8}
+  .drill .r.idea span:last-child{color:#41466b}
+  .drill .mat{background:#fbfaf6;border:1px solid #f0ece0;border-left:3px solid #c9a05c;
+    border-radius:7px;padding:7px 10px;margin-bottom:6px}
+  .drill .mat .kk{display:inline-block;color:#9a742c;background:#f5ecd8;margin-bottom:5px}
+  .drill .mat ul{margin:0;padding:0;list-style:none}
+  .drill .mat li{position:relative;padding-left:12px;font-family:"Songti SC","SimSun",serif;
+    font-size:11.2px;line-height:1.8;color:#5d5646;margin-bottom:3px;word-break:break-word}
+  .drill .mat li:last-child{margin-bottom:0}
+  .drill .mat li::before{content:"";position:absolute;left:1px;top:9px;width:4px;height:4px;
+    border-radius:50%;background:#c9a05c}
+  .drill .r.task{background:#e9f7f4;border-left:3px solid #17a2a8;margin-bottom:0}
+  .drill .r.task .kk{color:#0e7f86;background:#d2eef0}
+  .drill .r.task span:last-child{color:#0d6e66;font-weight:600}
   .drill .r.demo{background:#eef2fd;border-left:3px solid #5b7fd4}
   .drill .r.demo .kk{color:#3f5fa8;background:#dbe4fa}
   .drill .r.demo span:last-child{color:#40507a;font-family:"Songti SC","SimSun",serif;font-size:11px}
@@ -318,16 +347,32 @@
   .review b{color:#5b5ce2}
   /* 不再固定 min-height：原来 940px 会让短文下方留出大片空白。
      改为按内容自然高度，只在打印分页时保持整块不被切断。 */
-  .paper-txt{background:#fdfcf8;border:1px solid #f2efe6;border-radius:10px;padding:36px 40px}
-  /* 润色稿高亮：逐句着色，不同手法不同颜色 */
+  .paper-txt{background:#fff;border:1px solid #ecebe4;border-radius:10px;padding:36px 40px}
+  /* 润色稿高亮：四类手法配色，与界面 TECH_MARKS 一致（m3 紫 / m2 蓝 / m1 橙 / m4 绿） */
   .paper-txt mark.ph{color:inherit;padding:0 2px;border-radius:3px;
     box-decoration-break:clone;-webkit-box-decoration-break:clone}
-  .paper-txt mark.ph-rhetoric{color:#6d33b0;background:#f2e4fd}
-  .paper-txt mark.ph-sense{color:#15724a;background:#dcf3e6}
-  .paper-txt mark.ph-action{color:#9a5f08;background:#fdedd2}
-  .paper-txt mark.ph-theme{color:#1a5489;background:#dfecfb}
+  .paper-txt mark.ph-rhetoric{color:#7a4fa8;background:rgba(139,110,192,.16)}
+  .paper-txt mark.ph-sense{color:#1f6f8b;background:rgba(76,158,182,.16)}
+  .paper-txt mark.ph-action{color:#b3541e;background:rgba(214,138,74,.18)}
+  .paper-txt mark.ph-theme{color:#2f7d5c;background:rgba(72,150,116,.16)}
   .paper-txt mark.ph-detail{color:#4a5262;background:#eceef5}
-  @media print{ .paper-txt mark.ph{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
+  /* 演示稿：正文彩色片段（带 <m1>~<m4> 标记），行内底色 */
+  .paper-txt .tk{border-radius:2px;padding:0 1px;font-weight:600;
+    box-decoration-break:clone;-webkit-box-decoration-break:clone}
+  /* 本次使用的润色手法（导出版）：标题行 + 圆点条目 + 胶囊标签 */
+  .ptech-head{display:flex;align-items:center;gap:10px;margin:22px 0 10px}
+  .ptech-head h4{margin:0;font-size:14px;font-weight:800;color:#2b3038;white-space:nowrap}
+  .ptech-head i{flex:1;height:0;border-top:1px dashed #dcd8ca}
+  .ptech-head span{font-size:11px;color:#9aa1ad;white-space:nowrap}
+  .ptech-list{margin:0;padding:0;list-style:none}
+  .ptech-list li{position:relative;padding-left:14px;font-size:12.4px;line-height:1.85;color:#5d6470;
+    text-align:justify;margin-bottom:8px}
+  .ptech-list li::before{content:"";position:absolute;left:1px;top:9px;width:5px;height:5px;border-radius:50%;
+    background:var(--c,#c9a05c)}
+  .ptech-list b{display:inline-block;font-size:11.4px;font-weight:600;color:var(--c);
+    background:color-mix(in srgb,var(--c) 10%,#fff);border:1px solid color-mix(in srgb,var(--c) 26%,#e8e2d4);
+    border-radius:4px;padding:0 5px;margin-right:5px;vertical-align:1px}
+  @media print{ .paper-txt mark.ph,.paper-txt .tk{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
   /* ---- 本次润色说明 ---- */
   .pn-head{font-size:14px;font-weight:800;color:#2a2c35;margin:22px 0 5px;
     padding-left:9px;border-left:3.5px solid #4aa96c;line-height:1.3}
@@ -934,7 +979,8 @@ function hexA(hex, a) {
       d: it.desc || '',
       quote: it.quote || '',
       fix: it.fix || '',
-      steps: fixSteps(it)
+      // 条目自带分步思路时优先使用（演示稿与定制批改），否则按问题类型推导
+      steps: (Array.isArray(it.steps) && it.steps.length) ? it.steps.slice(0, 3) : fixSteps(it)
     }));
     return { diagLine, nodes, fixes };
   }
@@ -956,11 +1002,16 @@ function hexA(hex, a) {
 
     const fixHTML = fixes.map((f, i) => `
       <div class="fx">
-        <div class="fx-h"><span class="n">${i + 1}.</span>${esc(f.t)}</div>
-        ${f.d ? `<div class="fx-d">${esc(f.d)}</div>` : ''}
-        <div class="fx-steps">
-          ${f.steps.map((s, k) => `<div class="fx-step"><span class="sn">${k + 1}</span><span>${esc(s)}</span></div>`).join('')}
+        <div class="fx-h"><span class="n">${i + 1}</span>${esc(f.t)}</div>
+        ${f.d ? `<div class="fx-sec"><span class="fx-lb lb-issue">问题在哪</span><div class="fx-d">${esc(f.d)}</div></div>` : ''}
+        <div class="fx-sec"><span class="fx-lb lb-how">怎么做</span>
+          <div class="fx-steps">
+            ${f.steps.map((s, k) => `<div class="fx-step"><span class="sn">${k + 1}</span><span>${esc(s)}</span></div>`).join('')}
+          </div>
         </div>
+        ${f.fix ? `<div class="fx-sec"><span class="fx-lb lb-demo">改后例句</span>
+          <div class="fx-fix">${esc(f.fix)}</div>
+        </div>` : ''}
       </div>`).join('');
 
     return `<div class="sec">写作思路</div>
@@ -981,14 +1032,17 @@ function hexA(hex, a) {
   function secDrills(o) {
     const list = o.drills || [];
     if (!list.length) return '';
-    // 卡片结构对齐参考排版：问题（橙）/ 思路（绿）/ 例子（蓝）
-    return `<div class="sec">小练笔<span class="tag">针对本文薄弱点</span></div>
+    // 通用练笔专题：练什么（琥珀）/ 怎么写（靛蓝）/ 素材积累（列表）/ 练笔任务（青绿）
+    return `<div class="sec">小练笔<span class="tag">通用写作能力训练</span></div>
+      <p class="drill-note">按本篇暴露的短板挑选的通用练笔专题，内容与原文无关，重在方法迁移与日常积累。素材可抄进积累本。</p>
       ${list.map((b, i) => `<div class="drill">
         <div class="h"><span class="n">${i + 1}</span><span class="t">${esc(b.key)}<em>· ${esc(b.focus)}</em></span></div>
-        ${b.related ? `<div class="iss">对应问题：${esc(b.related)}</div>` : ''}
-        <div class="r prob"><span class="kk">问题</span><span>${esc(b.issue || '')}</span></div>
-        <div class="r idea"><span class="kk">思路</span><span>${esc(b.idea || '')}</span></div>
-        <div class="r demo"><span class="kk">例子</span><span>${esc(b.demo || '')}</span></div>
+        <div class="r prob"><span class="kk">练什么</span><span>${esc(b.issue || '')}</span></div>
+        <div class="r idea"><span class="kk">怎么写</span><span>${esc(b.idea || '')}</span></div>
+        ${(b.materials && b.materials.length) ? `<div class="mat"><span class="kk">素材积累</span>
+          <ul>${b.materials.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>`
+          : (b.demo ? `<div class="r demo"><span class="kk">例子</span><span>${esc(b.demo)}</span></div>` : '')}
+        ${b.task ? `<div class="r task"><span class="kk">练笔任务</span><span>${esc(b.task)}</span></div>` : ''}
       </div>`).join('')}`;
   }
 
@@ -1035,9 +1089,43 @@ function hexA(hex, a) {
     return out;
   }
 
+  /* 演示稿导出：与界面同一份四类手法定义，保证导出与屏幕颜色一致 */
+  const EXPORT_TECH = [
+    { key: 'm1', name: '动作 / 细节描写', color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
+    { key: 'm2', name: '感官描写', color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
+    { key: 'm3', name: '修辞手法', color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
+    { key: 'm4', name: '议论改叙述 / 点题', color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
+  ];
+  const exportTechOf = k => EXPORT_TECH.find(t => t.key === k) || null;
+  function paintDemoTech(text) {
+    const safe = esc(String(text == null ? '' : text));
+    return safe
+      .replace(/&lt;(m[1-4])&gt;([\s\S]*?)&lt;\/\1&gt;/g, (all, k, inner) => {
+        const mk = exportTechOf(k);
+        return mk ? `<span class="tk" style="color:${mk.color};background:${mk.bg}">${inner}</span>` : inner;
+      })
+      .replace(/&lt;\/?m[1-4]&gt;/g, '');
+  }
+
   function secPolish(o) {
     const lvTag = [o.grade, o.label].filter(Boolean).join(' · ');
     const notes = o.polishNotes || [];
+    const demo = o.demoPolish;
+    if (demo && Array.isArray(demo.paras)) {
+      // 演示稿：与界面 Tab4 同构 —— 白纸黑字 + 四类彩色片段 + 手法清单（导出不带字数提示）
+      const tech = (demo.techniques || []).filter(t => t && t.text);
+      return `<div class="sec">润色后文章${lvTag ? `<span class="tag">${esc(lvTag)}</span>` : ''}</div>
+        <div class="paper-txt"><div class="t">${esc(demo.title || o.title)}</div>
+          ${demo.paras.map(t => `<p>${paintDemoTech(t)}</p>`).join('')}</div>
+        ${tech.length ? `<div class="ptech-head"><h4>本次使用的润色手法</h4><i></i><span>${tech.length} 条 · 对照原文查看改动</span></div>
+        <ul class="ptech-list">
+          ${tech.map(t => {
+            const mk = exportTechOf(t.mark);
+            const label = mk ? `<b style="--c:${mk.color}">${esc(mk.name)}</b>` : '';
+            return `<li${mk ? ` style="--c:${mk.color}"` : ''}>${label}${esc(t.text)}</li>`;
+          }).join('')}
+        </ul>` : ''}`;
+    }
     return `<div class="sec">润色后文章${lvTag ? `<span class="tag">${esc(lvTag)}</span>` : ''}</div>
       <div class="paper-txt"><div class="t">${esc(o.title)}</div>
         ${o.polished.map((t, pi) => `<p>${hlText(t, pi, o.polishMarks)}</p>`).join('')}</div>
@@ -1078,7 +1166,7 @@ function hexA(hex, a) {
 
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>${esc(o.title)} · 智批作文</title>
+<title>${esc(o.title)} · 紫微星</title>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -1260,7 +1348,7 @@ function hexA(hex, a) {
       });
     }
     setTimeout(placeAll, 300);
-    setTimeout(placeAll, 900);
+    setTimeout(function(){ placeAll(); window.__zpLayoutDone = true; }, 900);
     window.addEventListener('resize', placeAll);
   }
   if (document.readyState === 'complete') boot();
@@ -1292,11 +1380,52 @@ function hexA(hex, a) {
   function exportHTML(o, opts) {
     const html = buildDocument(o);
     const blob = new Blob(['\ufeff' + html], { type: 'text/html;charset=utf-8' });
-    const name = `智批作文专业版-${safe(o.title)}.html`;
+    const name = `紫微星-${safe(o.title)}.html`;
 
     dl(blob, name);
   }
 
+
+  /* ---------- 网页版 PDF：离屏 iframe 排版 + 浏览器打印管线 ----------
+   * 网页没有原生写盘能力，用同源 iframe 加载完整导出文档（白板测量脚本
+   * 会在 iframe 里真实跑一遍），排版就绪后调 iframe 的 print()。
+   * 浏览器打印目标选「另存为 PDF」即可得到与桌面版一致的矢量 A4。
+   * 这是浏览器平台唯一可行通道；桌面版走 printToPDF 全自动，不经此处。 */
+  function exportPDFWeb(o) {
+    return new Promise((resolve, reject) => {
+      try {
+        const html = buildDocument(o);
+        const old = document.getElementById('zp-pdf-frame');
+        if (old) old.remove();
+        const fr = document.createElement('iframe');
+        fr.id = 'zp-pdf-frame';
+        fr.setAttribute('aria-hidden', 'true');
+        fr.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;height:1123px;border:0;visibility:hidden';
+        document.body.appendChild(fr);
+        const cleanup = () => setTimeout(() => { try { fr.remove(); } catch (e) {} }, 2000);
+        fr.onload = () => {
+          const w = fr.contentWindow;
+          if (!w) { cleanup(); reject(new Error('排版容器创建失败')); return; }
+          const t0 = Date.now();
+          const tick = () => {
+            // 等导出文档自带的摆卡脚本置完成标记（最晚 load 后 900ms），再留一帧渲染
+            if (w.__zpLayoutDone || Date.now() - t0 > 6000) {
+              setTimeout(() => {
+                try {
+                  w.focus();
+                  w.print();
+                  resolve();
+                } catch (e) { reject(e); }
+                cleanup();
+              }, 250);
+            } else setTimeout(tick, 100);
+          };
+          tick();
+        };
+        fr.srcdoc = html;
+      } catch (e) { reject(e); }
+    });
+  }
 
   /* ---------- 工具 ---------- */
   const esc = s => String(s == null ? '' : s)
@@ -1311,5 +1440,5 @@ function hexA(hex, a) {
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
   }
 
-  global.ZPEXPORT = { collect, buildDocument, exportHTML, outlineData, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview, secOutline } };
+  global.ZPEXPORT = { collect, buildDocument, exportHTML, exportPDFWeb, outlineData, __getBlocks: getBlocks, __sec: { secCover, secBoardBlocks, tabOverview, secOutline } };
 })(window);

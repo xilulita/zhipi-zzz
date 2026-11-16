@@ -1,7 +1,8 @@
-/* ===== 智批作文 · 应用逻辑 ===== */
+/* ===== 紫微星 · 应用逻辑 ===== */
 (function () {
   'use strict';
   const { GRADES, DIMS, GENRES, buildEssay, scoreOf, levelOf, ISSUE_BANK, GOOD_BANK, pick, rand } = window.ZP;
+  const genreById = window.ZP.genreById || (id => GENRES.find(g => g.id === id) || GENRES[0]);
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -19,24 +20,86 @@
     exporting: false
   };
 
-  const DEMO_LINES = [
-    '窗外的梧桐叶被风翻了一下，露出背面浅浅的银色。',
-    '我坐在书桌前，笔尖停在纸上，像被什么东西绊住了。',
-    '那天下午发生的事，一遍一遍地在我眼前重演。',
-    '妈妈在厨房里弯腰拣菜，背影像一张被岁月折过的纸。',
-    '我忽然想走过去，帮她提一下那袋米，可我又坐回去了。',
-    '她说，你先写作业，这点事妈自己来。',
-    '我一低头，才发现本子上一个字也没写。',
-    '原来有些话，是要等长大了才听得懂的。',
-    '我想起了去年冬天，也是这样的一个下午。',
-    '雪下得很急，把整条街都下白了。',
-    '她把我的手拢在掌心里，一下一下地搓。',
-    '那时候我还嫌她手太粗糙，把手抽了回来。',
-    '现在想起来，心里像被什么轻轻撞了一下。',
-    '那天晚上，我第一次主动去厨房洗碗。',
-    '水很凉，碗很多，我却洗得很有耐心。',
-    '妈妈站在门口看我，什么也没说，只是笑了一下。',
-    '那个笑，我到现在还记得。'
+  /* 演示作文《外婆的蒲扇》：
+   * 白板按正常作文连续成段排版（首行缩进两格、写满换行），
+   * 报告按五段成文（DEMO_PARAS），两者同源同文。 */
+  const DEMO_TITLE = '外婆的蒲扇';
+  const DEMO_PARAS = [
+    '外婆有一把旧蒲扇。扇面黄黄的，边上磨出了毛，扇柄被手磨得发亮。小时候的夏天，我总睡在外婆身边，她一边给我扇风，一边哼着听不懂的老歌。我曾以为，那把扇子早就该扔了，商店里的电风扇比它凉快多了。',
+    '那年暑假特别热，停电的晚上，屋里闷得像蒸笼。我翻来覆去睡不着，外婆就坐在床边给我扇扇子。我迷迷糊糊地问她热不热，她说，外婆不怕热。半夜我醒来，看见她还在扇，额头上全是汗，衣领湿了一圈。',
+    '后来我进城上学，家里装了空调，那把蒲扇挂在墙上，落了灰。去年夏天回去，外婆还是执意给我扇风，我说有空调不用扇，她笑笑，把扇子放回墙上，转身去厨房给我切西瓜。那天夜里我很感动，却什么也没说。',
+    '临走那天，外婆把蒲扇塞进我的行李箱，说城里停电时用得上。我嫌它占地方，偷偷拿了出来。外婆看见了，什么也没说，只是把扇子上的灰擦了又擦。汽车开动的时候，她还站在门口，手里攥着那把扇子。',
+    '如今每当我吹着空调，总会想起那把旧蒲扇。原来外婆扇的不是风，是她说不出口的牵挂。我明白了，爱就是这样一代一代传下来的。'
+  ];
+  /* 白板拆行：连续成段排版——每段首行缩进两格，写满 28 字换行，
+   * 行首不悬标点。不再一句一行（书信式），与真实作文卷面一致。 */
+  const DEMO_WRAP_MAX = 28;
+  const DEMO_WRAP_PUNC = '，。！？；：、」』”）';
+  function demoWrapPara(p) {
+    const text = '　　' + p;
+    const out = [];
+    let i = 0;
+    while (i < text.length) {
+      let end = Math.min(i + DEMO_WRAP_MAX, text.length);
+      while (end < text.length && DEMO_WRAP_PUNC.indexOf(text[end]) >= 0 && end > i + 1) end--;
+      out.push(text.slice(i, end));
+      i = end;
+    }
+    return out;
+  }
+  const DEMO_LINES = DEMO_PARAS.reduce((rows, p) => rows.concat(demoWrapPara(p)), []);
+  // 段落号 → 该段首行行号（批注定位用，与拆行逻辑同源）
+  const DEMO_PARA_ROWS = (() => {
+    const starts = [];
+    let row = 0;
+    DEMO_PARAS.forEach(p => { starts.push(row); row += demoWrapPara(p).length; });
+    return starts;
+  })();
+
+  /* 演示润色稿：与参考版式一致。正文用 <m1>~<m4> 标出改写片段，
+   * m1 动作/细节（橙）m2 感官（蓝）m3 修辞（紫）m4 议论改叙述/点题（绿）。 */
+  const DEMO_POLISHED = [
+    '外婆有一把旧蒲扇。扇面黄黄的，边上磨出了毛，<m1>扇柄被手掌磨得发亮，握上去温温的</m1>。小时候的夏天，我总睡在外婆身边，她一边给我扇风，一边哼着听不懂的老歌。<m2>老歌的调子软软的，混着蒲扇一下一下的风声</m2>。我曾以为，那把扇子早就该扔了，商店里的电风扇比它凉快多了。',
+    '那年暑假特别热，停电的晚上，<m3>屋里闷得像一口盖严的蒸笼</m3>。我翻来覆去睡不着，外婆就坐在床边给我扇扇子。<m2>风一下一下落在我背上，带着淡淡的皂角味，窗外的蝉声一浪一浪</m2>。我迷迷糊糊地问她热不热，她说，外婆不怕热。半夜我醒来，<m1>她还在扇，手腕一顿一顿的，额头的汗顺着皱纹往下淌</m1>，衣领湿了一圈。',
+    '后来我进城上学，家里装了空调，那把蒲扇挂在墙上，落了灰。去年夏天回去，外婆还是执意给我扇风，我说有空调不用扇，她笑笑，把扇子放回墙上，转身去厨房给我切西瓜。<m1>那天夜里我盯着墙上那团扇影，鼻子忽然一酸</m1>，却什么也没说。',
+    '临走那天，外婆把蒲扇塞进我的行李箱，说城里停电时用得上。我嫌它占地方，偷偷拿了出来。外婆看见了，什么也没说，<m1>只是把扇面上的灰擦了又擦，指腹在毛边上停了很久</m1>。汽车开动的时候，她还站在门口，<m3>手里攥着那把扇子，像攥着一句没来得及说的话</m3>。',
+    '<m4>如今空调的风再凉，也吹不出那股皂角味。那把旧蒲扇摇出来的，哪里是风，分明是外婆一夜一夜不肯停下的牵挂</m4>。'
+  ];
+  // 本次使用的润色手法：mark 与正文标记一一对应
+  const DEMO_TECHNIQUES = [
+    { mark: 'm3', text: '运用比喻修辞，把闷热比作盖严的蒸笼、把攥扇的手比作没说完的话，让牵挂变成可看的画面' },
+    { mark: 'm1', text: '补充动作细节，手腕一顿一顿、汗顺着皱纹淌、指腹在毛边上停留，替代「她很辛苦」这类概括' },
+    { mark: 'm2', text: '补进听觉与嗅觉触觉，老歌混着风声、皂角味、落在背上的风，让夏夜写得可听可闻可感' },
+    { mark: 'm4', text: '把「爱一代一代传下来」这类议论改成实物落点，结尾回扣蒲扇与皂角味，首尾照应不喊口号' }
+  ];
+  // 演示稿总评：精炼三段，点亮点、指短板、给方向，不逐条罗列
+  const DEMO_REVIEW =
+    '这是一篇<b>有生活温度</b>的习作。一把旧蒲扇串起三个夏夜，选材小而真，「外婆不怕热」这句原话尤其动人——嘴上说不热，额头的汗却说了实话，这份反差抓得很好。<br><br>' +
+    '最需要改的是<b>把概括换成画面</b>：「半夜她还在扇」是全文的题眼，却只有一句；写一写她扇风的手腕、汗珠、你半梦半醒间的皂角味，分量立刻不同。「那天夜里我很感动」也停在了结论上，换成身体反应，读者才会跟着你一起动情。<br><br>' +
+    '结尾「爱一代一代传下来」偏口号，回到蒲扇本身收束会更有余味。按这个方向改一稿，完全有条件冲进一类文。';
+  // 演示稿「具体问题与修改思路」：固定三条，与批改要求同构（问题 + 三步修改思路 + 原句改法）
+  const DEMO_ISSUES = [
+    { dim: 'structure', sev: 'high', title: '题眼段太薄：深夜扇风没写透',
+      desc: '第二段「半夜她还在扇」是全文最动人的瞬间，却只有「额头上全是汗」一句带过；读者看不到她扇风的动作和你醒来那一刻的画面。',
+      steps: ['先把「还在扇」拆成有过程的小动作：手腕怎么动、扇到哪儿停一下。',
+        '再补两处能看见或闻到的细节：汗顺着皱纹淌、风里的皂角味。',
+        '最后停在「我假装睡着」这类身体反应上，不写「我很感动」。'],
+      quote: '半夜我醒来，看见她还在扇，额头上全是汗，衣领湿了一圈。',
+      fix: '她还在扇，手腕一顿一顿的，额头的汗顺着皱纹往下淌。' },
+    { dim: 'language', sev: 'mid', title: '情绪停在结论上，缺身体反应',
+      desc: '「那天夜里我很感动」直接说结果，读者接收不到画面；全文情绪多次靠「感动」「明白」这类词收尾，感染力被削弱。',
+      steps: ['把「很感动」划掉，问自己：那一刻鼻子、喉咙、眼睛什么感觉？',
+        '选一个最清楚的反应写进去，比如「盯着墙上的扇影，鼻子一酸」。',
+        '写完读一遍，确认没有出现「感动」「温暖」这类概括词。'],
+      quote: '那天夜里我很感动，却什么也没说。',
+      fix: '那天夜里我盯着墙上那团扇影，鼻子忽然一酸，却什么也没说。' },
+    { dim: 'content', sev: 'mid', title: '结尾喊口号，没有回到实物',
+      desc: '「我明白了，爱就是这样一代一代传下来的」偏议论腔，与前文具体的叙述脱节；开头立起的蒲扇意象，结尾没有接住。',
+      steps: ['先删掉「我明白了」这句总结，把道理留给读者。',
+        '让蒲扇或皂角味在结尾再出现一次，与开头形成回环。',
+        '如果要抒情，只用一句，且落在实物上，比如「摇出来的哪里是风」。'],
+      quote: '我明白了，爱就是这样一代一代传下来的。',
+      fix: '那把旧蒲扇摇出来的，哪里是风，分明是外婆一夜一夜不肯停下的牵挂。' }
   ];
 
   // 与 makePlaceholder 同一套网格参数，保证容器宽高比一致
@@ -48,7 +111,7 @@
   }
 
   const getGrade = () => GRADES.find(g => g.id === state.gradeId) || { id: null, name: '未选年级', label: '请先选择', total: 100, rules: [], range: [0, 0] };
-  const getGenre = () => GENRES.find(g => g.id === state.genreId) || GENRES[0];
+  const getGenre = () => genreById(state.genreId);
   const activeDoc = () => state.docs.find(d => d.id === state.activeId) || null;
   let uid = 0;
   const nid = p => p + '_' + (++uid) + Math.random().toString(36).slice(2, 6);
@@ -60,9 +123,59 @@
     $$('#genreChips .chip').forEach(b => b.onclick = () => {
       state.genreId = b.dataset.g;
       const d = activeDoc();
-      if (d) { d.genreId = state.genreId; }   // 保留已有批改结果，不打断展示
+      if (d) {
+        d.genreId = state.genreId;
+        /* 体裁变了批改口径也要跟着变：已有批改结果按新体裁重新生成，
+         * 避免"选了演讲稿、批注还在按记叙文批"的错位。
+         * 演示稿的白板批注是固定展示，但报告层同样按新体裁重批。 */
+        if (d.result) {
+          d.result = makeResult(d);
+          toast('已按「' + getGenre().name + '」重新批改');
+        } else {
+          toast('已切换体裁：' + getGenre().name);
+        }
+      } else {
+        toast('已切换体裁：' + getGenre().name);
+      }
       renderGenres(); renderTabs(); renderCanvas(); renderReport();
-      toast('已切换体裁：' + getGenre().name);
+    });
+    bindGenreTips();
+  }
+
+  /* 体裁悬停提示：浅色卡片（对齐参考版式）——
+   * 标题「XX · 批改要点」+ 逐条要点 + 底部「适用题型」 */
+  let genreTipEl = null;
+  function bindGenreTips() {
+    if (!genreTipEl) {
+      genreTipEl = document.createElement('div');
+      genreTipEl.className = 'genre-tip';
+      genreTipEl.setAttribute('role', 'tooltip');
+      document.body.appendChild(genreTipEl);
+    }
+    $$('#genreChips .chip').forEach(b => {
+      const show = () => {
+        const g = genreById(b.dataset.g);
+        if (!g) return;
+        const points = (g.points && g.points.length) ? g.points : [g.focus || g.desc || ''];
+        genreTipEl.innerHTML =
+          `<div class="gt-h">${esc(g.name)} · 批改要点</div>` +
+          `<ul class="gt-list">${points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` +
+          (g.types ? `<div class="gt-types">适用题型：${esc(g.types)}</div>` : '');
+        genreTipEl.classList.add('on');
+        const r = b.getBoundingClientRect();
+        // 优先显示在 chip 右侧（侧栏右缘外），放不下则显示在上方
+        const tw = genreTipEl.offsetWidth, th = genreTipEl.offsetHeight;
+        let left = r.right + 10, top = r.top + r.height / 2 - th / 2;
+        if (left + tw > window.innerWidth - 8) { left = Math.max(8, r.left); top = r.top - th - 8; }
+        top = Math.max(8, Math.min(top, window.innerHeight - th - 8));
+        genreTipEl.style.left = left + 'px';
+        genreTipEl.style.top = top + 'px';
+      };
+      const hide = () => genreTipEl.classList.remove('on');
+      b.addEventListener('mouseenter', show);
+      b.addEventListener('mouseleave', hide);
+      b.addEventListener('focus', show);
+      b.addEventListener('blur', hide);
     });
   }
 
@@ -414,7 +527,7 @@
   function newBlankDoc() {
     return {
       id: nid('doc'), name: '未命名',
-      img: makePlaceholder('', '那一刻，我长大了'),
+      img: makePlaceholder('', DEMO_TITLE),
       w: 760, h: demoPageH(), rawSize: 0, size: 0,
       gradeId: state.gradeId || null, genreId: state.genreId || 'narr', note: '',
       weights: state.weights.slice(),
@@ -980,7 +1093,7 @@
 
   function imgSheet(d, raw) {
     const g = GRADES.find(x => x.id === d.gradeId) || getGrade();
-    const genre = GENRES.find(x => x.id === d.genreId) || GENRES[0];
+    const genre = genreById(d.genreId);
     // 与批改态同一套尺寸逻辑：宽高双向约束，保证整纸完整可见
     const cw0 = $('#canvasWrap') ? $('#canvasWrap').clientWidth : 900;
     const ch0 = $('#canvasWrap') ? $('#canvasWrap').clientHeight : 720;
@@ -1017,11 +1130,16 @@
     const avail = Math.max(300, Math.min(cw - 8, 1160));
     // 宽幅图片时给批注列更多压缩，把宽度让给正文
     const wideDoc = ((d.h || 1) / (d.w || 1)) < 0.8;
-    // 竖向窄卡：收窄两侧批注列，把宽度让给作文纸
-    const marginW = avail > 1120 ? 146
-      : avail > 980 ? 138
-      : avail > 820 ? 128
-      : wideDoc ? 112 : 118;
+    // 批注列宽：字号加大后同步加宽，保证每行能容下 12~13 个字；
+    // 窄窗口时适度回收，但不再低于 132px（竖屏另有堆叠布局兜底）
+    // 堆叠阈值看「画板实际宽度」而非窗口宽度：三栏布局下画板 = 窗口 - 两侧栏，
+    // 竖屏堆叠布局下画板 ≈ 整窗宽，两种形态都能正确判断
+    const stack = cw < 560;   // 竖屏/窄画板：批注改为纸下方双列卡片流
+    const marginW = stack ? 0
+      : avail > 1120 ? 176
+      : avail > 980 ? 164
+      : avail > 820 ? 152
+      : wideDoc ? 136 : 144;
     // 高度优先：扣掉介绍区与底部印章/图例后，剩余高度全部给作文纸
     const introH = (document.querySelector('.board-intro') || {}).offsetHeight || 72;
     const reserved = introH + 26 + 18;   // 介绍区 + 间距 + 印章余量
@@ -1029,7 +1147,10 @@
     const ratio = (d.h || 1) / (d.w || 1);
     const byWidth = avail - marginW * 2 - 14;
     const byHeight = maxH / ratio;
-    const paperW = Math.max(180, Math.min(byWidth + (wideDoc ? 20 : 0), byHeight, 760));
+    // 堆叠模式：纸张独占整行宽度（批注在下方），高度不再受视口挤压
+    const paperW = stack
+      ? Math.max(220, Math.min(avail - 8, 760))
+      : Math.max(180, Math.min(byWidth + (wideDoc ? 20 : 0), byHeight, 760));
     /* 只画坐标真实有效的批注方格。
      * 以前对缺失坐标的批注兜底成同一个默认矩形，导致所有方格叠在纸面同一处，
      * 互相覆盖后只有一个能点到，其余既选不中也拖不动。
@@ -1043,7 +1164,7 @@
         <span class="mk-grip" title="拖动右下角调整划线长度"></span>
         <button class="mk-del" title="删除这条划线" aria-label="删除这条划线">×</button>
       </div>`).join('');
-    return `<div class="sheet-wrap" style="max-width:${avail}px">
+    return `<div class="sheet-wrap${stack ? ' stack-mode' : ''}" style="max-width:${avail}px">
       <svg class="anno-lines"></svg>
       <div class="margin-col left" style="width:${marginW}px;flex-basis:${marginW}px">${L.map(a => annoHTML(a)).join('')}</div>
       <div class="shot-col" style="width:${paperW}px">
@@ -1086,6 +1207,31 @@
     const img = document.querySelector('.shot-img');
     const svg = document.querySelector('.anno-lines');
     if (!img || !svg) return;
+
+    /* 堆叠模式（竖屏/窄窗）：批注卡改为纸下方的双列卡片流，
+     * 不再绝对定位、不画引线；卡片按原文顺序自然排列，全部可读。 */
+    const sheetEl = document.querySelector('.sheet-wrap');
+    if (sheetEl && sheetEl.classList.contains('stack-mode')) {
+      svg.innerHTML = '';
+      ['left', 'right'].forEach(side => {
+        const col = document.querySelector('.margin-col.' + side);
+        if (!col) return;
+        col.style.height = '';
+        col.style.minHeight = '';
+        col.querySelectorAll('.anno').forEach(el => {
+          el.style.position = '';
+          el.style.top = '';
+          el.style.left = '';
+          el.style.right = '';
+          el.style.width = '';
+          el.style.maxHeight = '';
+          el.style.overflowY = '';
+        });
+      });
+      bindAnnoHover();
+      return;
+    }
+
     const imgRect = img.getBoundingClientRect();
     const sc = state.zoom || 1;
     const scaleSafe = v => v / sc;
@@ -1218,6 +1364,9 @@
     const img = document.querySelector('.shot-img');
     const svg = document.querySelector('.anno-lines');
     if (!img || !svg || !annos.length) return;
+    // 堆叠模式（竖屏）不画引线：卡片在纸下方，连线会横穿正文
+    const sheetEl = document.querySelector('.sheet-wrap');
+    if (sheetEl && sheetEl.classList.contains('stack-mode')) { svg.innerHTML = ''; return; }
     const imgRect = img.getBoundingClientRect();
     const cx = svg.getBoundingClientRect();
     const sc = state.zoom || 1;
@@ -1282,6 +1431,9 @@
       el.addEventListener('pointerdown', e => {
         if (e.button !== undefined && e.button !== 0) return;
         if (e.target.closest('.anno-del')) return;
+        // 堆叠模式（竖屏）卡片在文档流中，不可拖动定位
+        const sheet = el.closest('.sheet-wrap');
+        if (sheet && sheet.classList.contains('stack-mode')) return;
         const a = findAnno(d, el.dataset.a);
         if (!a) return;
         st = { y0: e.clientY, top0: parseFloat(el.style.top) || 0, moved: false };
@@ -1685,7 +1837,7 @@
   async function gradeDoc(d) {
     if (!d || d.grading || !d.realImg) return;
     const gd = GRADES.find(x => x.id === (d.gradeId || state.gradeId)) || getGrade();
-    const ge = GENRES.find(x => x.id === d.genreId) || getGenre();
+    const ge = genreById(d.genreId) || getGenre();
     const ctrl = new AbortController();
     const tAll = Date.now();
 
@@ -1742,7 +1894,7 @@
           }
           renderRunCard();
         },
-        { signal: ctrl.signal }
+        { signal: ctrl.signal, genreFocus: ge.focus || '', genreDesc: ge.desc || '' }
       )]);
       markStage(3);
       const tModel = Date.now();
@@ -1790,7 +1942,7 @@
         notifList()[0].docId = d.id;
         toast('已停止批改，已产生的输出仍可能会计费');
       } else {
-        console.warn('[智批] 批改失败', err);
+        console.warn('[紫微星] 批改失败', err);
         d.status = 'pending';
         d.failedAt = Date.now();
         d.failMsg = err.message || '未知错误';
@@ -1915,15 +2067,15 @@
   }
 
   function makeResult(d) {
-    // 演示稿固定按六年级生成；正常稿按所选年级，未选则默认六年级兜底
-    const g = GRADES.find(x => x.id === d.gradeId) || GRADES.find(x => x.id === 'g6') || GRADES[3];
-    const genre = GENRES.find(x => x.id === d.genreId) || GENRES[0];
+    // 演示稿固定按五年级生成（450~550 字区间）；正常稿按所选年级，未选则默认六年级兜底
+    const g = GRADES.find(x => x.id === d.gradeId) || GRADES.find(x => x.id === (d.isDemo ? 'g5' : 'g6')) || GRADES[3];
+    const genre = genreById(d.genreId);
     // 演示稿：必须使用白板上那篇真实正文，保证报告与画面一致
-    const essay = (d.isDemo && typeof DEMO_LINES !== 'undefined')
+    const essay = (d.isDemo && typeof DEMO_PARAS !== 'undefined')
       ? {
-          title: '那一刻，我长大了',
-          paras: DEMO_LINES.slice(),
-          words: DEMO_LINES.join('').replace(/\s/g, '').length,
+          title: DEMO_TITLE,
+          paras: DEMO_PARAS.slice(),
+          words: DEMO_PARAS.join('').replace(/\s/g, '').length,
           genre
         }
       : buildEssay(g, genre, d.note || '');
@@ -1953,6 +2105,11 @@
       ex: it.ex || ''
     }));
     // ③ 润色稿：不在此处预生成，交由 buildPolished 统一处理（带变更追踪）
+    // ③b 演示稿：总评与「具体问题」使用精炼定制版（三条，与批改要求同构）
+    if (d.isDemo && typeof DEMO_REVIEW !== 'undefined') {
+      report.review = DEMO_REVIEW;
+      report.issues = DEMO_ISSUES.map(it => ({ ...it, detail: it.desc, ex: it.ex || '' }));
+    }
     // ④ 四维评语：演示稿补齐
     if (!report.dimComments) {
       report.dimComments = {};
@@ -1979,6 +2136,21 @@
       return s.length > n ? s.slice(0, n) + '…' : s;
     };
     const build = [];   // { type, para, html, quote }
+
+    /* ---------- 〇、体裁契合检查 ----------
+     * 先判断"这篇文章是不是所选体裁"：文中出现其他体裁的强特征时，
+     * 出一条提醒（不硬改内容），避免批注口径与文章实际类型错位。 */
+    const gid0 = genre && genre.id;
+    const full0 = P.join('');
+    const looksLetter = /(^|\n)\s*(亲爱的|敬爱的|尊敬的)[^\n]{0,10}[:：]/.test(full0) || /(此致\s*敬礼|祝\s*身体健康)/.test(full0);
+    const looksSpeech = /(同学们|老师们|各位(同学|老师|朋友))[：:，]?\s*(大家好|你们好)/.test(full0);
+    const looksRead = /《[^》]{1,20}》/.test(full0) && /(读了|读完|看完|有感|读后感|观后感)/.test(full0);
+    const detected = looksLetter ? 'letter' : looksSpeech ? 'speech' : looksRead ? 'read' : null;
+    if (detected && gid0 && detected !== gid0 && !(detected === 'letter' && gid0 === 'speech')) {
+      const nameOf = { letter: '书信', speech: '演讲发言', read: '读后有感' };
+      build.push({ type: 'polish', para: 0, quote: cut(P[0], 12),
+        html: `这篇文章带有明显的<b>${nameOf[detected]}</b>特征，与当前所选体裁「${genre.name}」不一致。建议把左侧体裁切换为「${nameOf[detected]}」，批改口径会更贴合；以下批注仍按本文实际内容给出。` });
+    }
 
     /* ---------- 一、病句 / 错别字：逐段扫描实际文本 ---------- */
     const ERR_RULES = [
@@ -2114,13 +2286,96 @@
         html: `“<b>${m[0]}</b>”是一个整体动作，一笔带过。拆成三拍会更有过程感：“手撑在桌沿，身子往前倾了一下，又慢慢收回去。”` });
     });
 
-    // 3.4 缺少人物原话 → 提示加一句对话
+    /* ---------- 三·补2 通用建议与体裁的适配 ----------
+     * 议论说理 / 演讲发言 / 读后有感本来就靠"讲道理"收束，
+     * 不能再按记叙文口径建议"删掉总结句、把道理藏起来"。
+     * （gid 提前声明：3.4 对话检查与后面的体裁专属检查共用） */
+    const gid = genre && genre.id;
+    const reasoningGenre = gid === 'argue' || gid === 'speech' || gid === 'read';
+
+    // 3.4 缺少人物原话 → 提示加一句对话（说理/演讲类不强制要求人物对话）
     const hasDialog = /[“"][^”"]{2,}[”"]/.test(P.join(''));
-    if (!hasDialog) {
+    if (!hasDialog && !reasoningGenre && gid !== 'travel' && gid !== 'object') {
       const cand = P.findIndex((t, i) => /(说|问|喊|答|告诉)/.test(t));
       const idx = cand >= 0 ? cand : Math.min(1, P.length - 1);
       build.push({ type: 'polish', para: idx, quote: cut(P[idx], 14),
         html: `全篇没有人物原话，情绪都靠转述。可以在这一处让人物说<b>一句</b>原话（带引号），比如“她说，你先写作业，这点事妈自己来。”，现场感立刻就出来了。` });
+    }
+
+    /* ---------- 三·补 体裁专属检查 ----------
+     * 按所选体裁追加"这类文章该有而没有"的检查，每条钉在真实段落上；
+     * 与通用规则共用去重逻辑，不会与其他批注点评同一句。 */
+    const full = P.join('');
+    const pushGenre = (type, pi, quote, html) => build.push({ type, para: pi, quote, html });
+    const genreMismatch = !!(detected && gid && detected !== gid);
+    if (genreMismatch) {
+      // 体裁不符时跳过"该体裁该有而没有"的检查，避免对书信批"缺少演讲呼告"这类错位
+    } else if (gid === 'letter') {
+      // 书信格式：称呼 / 祝语 / 署名日期
+      if (!/^[^\n]{0,12}(亲爱的|敬爱的|尊敬的|您好|你好)/.test(String(P[0] || '')) && !/[:：]\s*$/.test(String(P[0] || ''))) {
+        pushGenre('err', 0, cut(P[0], 12), '书信开头应有<b>顶格称呼</b>（如"亲爱的妈妈："），这是书信格式的固定要求，现在缺失会直接扣格式分。');
+      }
+      if (!/(此致|祝|身体健康|工作顺利|天天开心|敬礼)/.test(full)) {
+        pushGenre('err', P.length - 1, cut(P[P.length - 1], 12), '结尾缺少<b>祝语</b>（如"祝身体健康"）。书信的祝语、署名、日期是格式分的关键，补上才完整。');
+      }
+      if (!/(署名|您的|你的(儿子|女儿|学生|朋友)|×××|[0-9]{1,2}月[0-9]{1,2}日)/.test(String(P[P.length - 1] || '') + String(P[P.length - 2] || ''))) {
+        pushGenre('polish', P.length - 1, cut(P[P.length - 1], 12), '结尾建议补上<b>署名与日期</b>（右下角两行），书信格式才算完整。');
+      }
+      if (!/(您|你)/.test(full)) {
+        pushGenre('polish', Math.min(1, P.length - 1), cut(P[Math.min(1, P.length - 1)], 12), '全篇没有出现"你/您"，缺少<b>对象感</b>。书信是写给某个人看的，试着直接对收信人说话。');
+      }
+    } else if (gid === 'speech') {
+      if (!/(同学们|老师们|大家好|各位|朋友们)/.test(String(P[0] || ''))) {
+        pushGenre('polish', 0, cut(P[0], 12), '演讲开头应有<b>呼告</b>（如"亲爱的同学们：大家好！"），先和听众建立联系，再进入正题。');
+      }
+      if (!/(我们|大家)/.test(full)) {
+        pushGenre('polish', Math.min(1, P.length - 1), cut(P[Math.min(1, P.length - 1)], 12), '全篇很少用"我们/大家"。演讲是说给听众听的，多用<b>共同立场的词</b>，感染力会更强。');
+      }
+      if (!/(让我们|一起来|从现在|行动|呼吁|倡议)/.test(String(P[P.length - 1] || ''))) {
+        pushGenre('polish', P.length - 1, cut(P[P.length - 1], 12), '结尾建议加一句<b>号召</b>（如"让我们从今天做起"），演讲收在行动上才有力量。');
+      }
+    } else if (gid === 'argue') {
+      if (!/(我认为|我觉得|我想说|应该|必须|道理|观点)/.test(full)) {
+        pushGenre('polish', 0, cut(P[0], 12), '议论文开头要<b>亮明观点</b>，一句话说清你的主张（如"我认为……"），现在读者还不清楚你要论证什么。');
+      }
+      const examplePara = P.findIndex(t => /(有一次|记得|比如|例如|曾经)/.test(t));
+      if (examplePara >= 0 && !/(这说明|可见|因此|正因为|告诉我们)/.test(P[examplePara])) {
+        pushGenre('polish', examplePara, cut(P[examplePara], 14), '这一段举了事例，但缺少<b>分析</b>。事例后补一句"这说明……"，把事例和观点连起来，论证才成立。');
+      }
+    } else if (gid === 'read') {
+      if (!/(《[^》]+》|读了|看完|观后)/.test(full)) {
+        pushGenre('err', 0, cut(P[0], 12), '读后感开头应交代<b>所读的书目或篇目</b>（用书名号），现在读者不知道你读的是什么。');
+      }
+      const introLong = P.findIndex(t => cnt(t) > 120 && /(讲了|主要写了|故事|内容|情节)/.test(t));
+      if (introLong >= 0) {
+        pushGenre('dele', introLong, cut(P[introLong], 14), '这一段复述原文内容偏多。读后感"读"只占三分之一，<b>压缩复述</b>，把篇幅让给自己的感受。');
+      }
+      if (!/(想起|记得|我也|有一次|去年|那次)/.test(full)) {
+        pushGenre('polish', Math.min(2, P.length - 1), cut(P[Math.min(2, P.length - 1)], 12), '感受部分建议<b>联系自己的一次具体经历</b>，"感"才有落点，不悬在半空。');
+      }
+    } else if (gid === 'travel') {
+      if (!/(来到|走进|沿着|穿过|到了|出发|前往)/.test(full)) {
+        pushGenre('polish', 0, cut(P[0], 12), '游记要有一条<b>游览路线</b>（"走进……沿着……来到……"），读者才能跟着你的脚步走，现在缺少行踪线索。');
+      }
+      const senses = ['/(看见|望|映入眼帘|眼前)/', '/(听见|听到|传来|声)/', '/(闻到|清香|气息|味)/', '/(摸|触|凉|暖|风吹)/'];
+      const senseCnt = senses.filter(re => new RegExp(re.slice(1, -1)).test(full)).length;
+      if (senseCnt <= 1 && P.length >= 2) {
+        pushGenre('polish', 1, cut(P[1], 12), '写景目前只有视觉。补上<b>声音、气味或触感</b>（鸟鸣、花香、风的凉意），景物才立体可感。');
+      }
+    } else if (gid === 'object') {
+      if (!/(形状|颜色|摸|质地|花纹|外形|样子|毛|叶子|花瓣)/.test(full)) {
+        pushGenre('polish', Math.min(1, P.length - 1), cut(P[Math.min(1, P.length - 1)], 12), '状物要有<b>外形特写</b>：形状、颜色、质地按顺序细看，现在读者还"看"不清这件物。');
+      }
+      if (!/(来历|送给|买的|捡|养|陪|那年|小时候)/.test(full)) {
+        pushGenre('polish', Math.min(2, P.length - 1), cut(P[Math.min(2, P.length - 1)], 12), '建议写一写这件物的<b>来历或故事</b>——它从哪来、和你发生过什么，物才有温度。');
+      }
+    } else if (gid === 'imag') {
+      if (!/(假如|如果|梦见|突然|神奇|魔法|未来|星球|王国|穿越)/.test(String(P[0] || '') + String(P[1] || ''))) {
+        pushGenre('polish', 0, cut(P[0], 12), '想象作文开头要尽快<b>交代神奇设定</b>（时间、地点、规则），读者才能进入你虚构的世界。');
+      }
+      if (!/(醒来|原来|回到|现实|睁眼)/.test(String(P[P.length - 1] || ''))) {
+        pushGenre('polish', P.length - 1, cut(P[P.length - 1], 12), '结尾可以<b>回到现实</b>（"我睁开眼睛……"），一虚一实，想象更有余味。');
+      }
     }
 
     /* ---------- 四、好句：挑真实有画面感的句子 ---------- */
@@ -2161,8 +2416,9 @@
       build.push({ type: 'dele', para: P.length - 1, quote: cut(last, 16),
         html: `结尾“<b>${cut(last, 16)}</b>”与开头意象重合，读起来是重复的。建议<u>删去这一句</u>，或压成半句，把余味留白。` });
     }
-    // 5.2 含总结式/议论式套话的句子
+    // 5.2 含总结式/议论式套话的句子（说理类体裁除外：它们的点题句是必要的）
     P.forEach((t, pi) => {
+      if (reasoningGenre) return;
       if (build.filter(b => b.type === 'dele').length >= 2) return;
       if (!/(原来|终于明白|我懂得了|这就是|让我明白了|使我懂得)/.test(t)) return;
       build.push({ type: 'dele', para: pi, quote: cut(t, 16),
@@ -2201,8 +2457,14 @@
       return { PAD_X: 86, LINE_W: 600, FIRST_BASE: 186, LINE_GAP: 40, W: 760 };
     };
     const G = gridTotal();
-    const rowsAll = (opts && opts.isDemo && typeof DEMO_LINES !== 'undefined') ? DEMO_LINES.length : P.length;
+    const isDemoGrid = !!(opts && opts.isDemo && typeof DEMO_LINES !== 'undefined');
+    const rowsAll = isDemoGrid ? DEMO_LINES.length : P.length;
     const pageH = (typeof demoPageH === 'function') ? demoPageH(rowsAll) : 1000;
+    // 演示稿白板按句拆行：把「段落号」映射到该段首句所在行，避免批注错位
+    const paraRow = (pi) => {
+      if (!isDemoGrid || typeof DEMO_PARA_ROWS === 'undefined') return pi;
+      return DEMO_PARA_ROWS[Math.max(0, Math.min(pi, DEMO_PARA_ROWS.length - 1))];
+    };
     const rowToY = (row) => {
       const base = G.FIRST_BASE + Math.max(0, row) * G.LINE_GAP;
       return {
@@ -2213,7 +2475,7 @@
 
     return uniq.map((a, i) => {
       const side = i % 2 === 0 ? 'left' : 'right';
-      const pos = rowToY(a.para);
+      const pos = rowToY(paraRow(a.para));
       return {
         id: 'a' + i, no: i + 1, type: a.type, side, html: a.html, para: a.para,
         quote: a.quote || '',
@@ -2246,7 +2508,8 @@
       { t: '收在主旨上', d: `结尾“${cut(last, 18)}…”回到开头的意象，形成回环，<em>结构收得稳</em>。` }
     ];
 
-    // 问题：用作文的真实特征判断，不再随机抽取
+    // 问题：用作文的真实特征判断，不再随机抽取；保底凑足 3 条内容类问题
+    // （「具体问题与修改思路」按 3 条设计，规范类问题会被该栏过滤，不能占坑）
     const issues = [];
     const longSent = P.find(t => /[^。！？]{45,}/.test(t));
     if (longSent) {
@@ -2265,6 +2528,34 @@
       issues.push({ dim: 'structure', sev: 'low', title: '有短段偏碎，层次被切得太细',
         desc: `全篇有 ${shortP} 个不足 30 字的短段，会打断叙述节奏，可以考虑合并到相邻段。`,
         ex: `建议：<b>把相邻的两三句合成一段，让每段只承担一个意思。</b>` });
+    }
+    /* 内容类保底：按文本真实特征依次补，直到凑足 3 条 */
+    const gidR = genre && genre.id;
+    if (issues.length < 3 && gidR === 'read' && !/(想起|记得|我也|有一次|去年|那次)/.test(P.join(''))) {
+      issues.push({ dim: 'content', sev: 'mid', title: '感受缺自身经历支撑，"感"悬在半空',
+        desc: '读后感的"感"要落到自己的一次具体经历上，现在只有对原文的评价，读者看不到这本书和"我"的关系。',
+        ex: '建议：<b>补一段"我也遇到过类似的事"，写清那一次的时间、动作和心里的变化。</b>' });
+    }
+    if (issues.length < 3 && !/[“"][^”"]{2,}[”"]/.test(P.join('')) && gidR !== 'argue' && gidR !== 'read') {
+      issues.push({ dim: 'language', sev: 'low', title: '全篇没有人物原话，现场感偏弱',
+        desc: '情绪与冲突都靠转述交代，读者听不到人物自己的声音，场景显得隔了一层。',
+        ex: '建议：<b>在最关键处让人物说一句原话（带引号），前后各配半句动作。</b>' });
+    }
+    if (issues.length < 3 && !/(像|仿佛|好似|如同)/.test(P.join(''))) {
+      issues.push({ dim: 'language', sev: 'low', title: '描写多靠形容词，缺少贴切的比喻',
+        desc: '文中几乎没有比喻，"很美、很难忘"这类评价词撑不起画面，语言表现力打了折扣。',
+        ex: '建议：<b>给最重要的物或人配一个来自生活的比喻，喻体最好带动作或磨损感。</b>' });
+    }
+    if (issues.length < 3) {
+      const keyPara = P.reduce((a, b) => (b.length > (a || '').length ? b : a), '');
+      issues.push({ dim: 'structure', sev: 'mid', title: '重点段可以再展开，详略不够分明',
+        desc: `全文各段篇幅接近，最该细写的关键段（第 ${P.indexOf(keyPara) + 1} 段）没有明显放开，读者刚进入情境就过去了。`,
+        ex: '建议：<b>把关键段扩成慢镜头：动作拆成三拍，补一处声音或触感，其余段落适当压缩。</b>' });
+    }
+    if (issues.length < 3) {
+      issues.push({ dim: 'content', sev: 'low', title: '结尾收束偏快，余味不足',
+        desc: '结尾把道理直接说了出来，缺少一个让读者自己回味的画面或实物落点。',
+        ex: '建议：<b>让开头出现过的物或景在结尾再出现一次，停在画面上，不解释。</b>' });
     }
     if (issues.length < 3) {
       issues.push({ dim: 'norm', sev: 'low', title: '标点与“的/地/得”仍需通读一遍',
@@ -2328,12 +2619,12 @@
   function renderReport() {
     const d = activeDoc();
     const box = $('#reportScroll');
-    $('#rpMeta').innerHTML = d ? `<span>${(GRADES.find(g => g.id === d.gradeId) || { name: '未选年级' }).name}</span><span>·</span><span>${(GENRES.find(g => g.id === d.genreId) || GENRES[0]).name}</span><span>·</span><span>${d.status === 'done' ? '已批改' : '待批改'}</span>` : '等待批改';
+    $('#rpMeta').innerHTML = d ? `<span>${(GRADES.find(g => g.id === d.gradeId) || { name: '未选年级' }).name}</span><span>·</span><span>${genreById(d.genreId).name}</span><span>·</span><span>${d.status === 'done' ? '已批改' : '待批改'}</span>` : '等待批改';
     $('#aiBadge').textContent = d && d.result ? 'AI 批改完成' : 'AI 已就绪';
     if (!d) { box.innerHTML = emptyReport('还没有作文', '上传作文图片并点击「一键批改」，<br>这里会生成完整的批改报告。'); return; }
     if (!d.result) {
       const g = GRADES.find(x => x.id === d.gradeId) || { name: '未选年级', label: '—', total: 100 };
-      const ge = GENRES.find(x => x.id === d.genreId) || GENRES[0];
+      const ge = genreById(d.genreId);
       const isDemoDoc = !!d.isDemo;
 
       box.innerHTML = `
@@ -2347,7 +2638,7 @@
       ${isDemoDoc ? `
       <div class="demo-note clickable" id="demoRun" role="button" tabindex="0" title="点击开始演示批改">
         <div class="dt"><span class="pulse-dot"></span>演示作文</div>
-        <div class="demo-title">《那一刻，我长大了》</div>
+        <div class="demo-title">《${DEMO_TITLE}》</div>
         <div class="demo-run-btn">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
           点击开始演示批改
@@ -2425,7 +2716,7 @@
       <div class="tabpane on" data-pane="all">${paneAll(R, g, lv)}</div>
       <div class="tabpane" data-pane="outline">${paneOutline(R, g)}</div>
       <div class="tabpane" data-pane="drill">${paneDrill(R, g)}</div>
-      <div class="tabpane" data-pane="polish">${panePolish(R, g)}</div>`;
+      <div class="tabpane" data-pane="polish">${panePolish(R, g, d)}</div>`;
 
     $$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
     // 右侧批注条目：仅高亮对应的原文彩块，不切换 Tab
@@ -2570,91 +2861,154 @@
       </div>
     </div>
     ${fixes.length ? `<div class="card">
-      <div class="card-h"><span class="ic" style="background:#e9f6ef;color:#2f8f60">✓</span>具体问题与修改思路
+      <div class="card-h"><span class="ic" style="background:#eeeefc;color:#5b5ce2">✓</span>具体问题与修改思路
         <span class="cnt">${fixes.length} 处</span></div>
       <div class="pn-sub2">针对本篇最值得优先处理的问题，每条给出可落地的改法。</div>
       ${fixes.map((f, i) => `<div class="pn-fix">
-        <div class="pn-fix-h"><span class="pf-n">${i + 1}.</span>${esc(f.t)}</div>
-        ${f.d ? `<div class="pn-fix-d">${esc(f.d)}</div>` : ''}
-        <div class="pn-fix-steps">
-          ${f.steps.map((x, k) => `<div class="pn-step"><span class="ps-n">${k + 1}</span><span>${esc(x)}</span></div>`).join('')}
+        <div class="pn-fix-h"><span class="pf-n">${i + 1}</span>${esc(f.t)}</div>
+        ${f.d ? `<div class="pn-fix-sec">
+          <div class="pf-lb lb-issue">问题在哪</div>
+          <div class="pn-fix-d">${esc(f.d)}</div>
+        </div>` : ''}
+        <div class="pn-fix-sec">
+          <div class="pf-lb lb-how">怎么做</div>
+          <div class="pn-fix-steps">
+            ${f.steps.map((x, k) => `<div class="pn-step"><span class="ps-n">${k + 1}</span><span>${esc(x)}</span></div>`).join('')}
+          </div>
         </div>
+        ${f.fix ? `<div class="pn-fix-sec">
+          <div class="pf-lb lb-demo">改后例句</div>
+          <div class="pf-fix">${esc(f.fix)}</div>
+        </div>` : ''}
       </div>`).join('')}
     </div>` : ''}`;
   }
 
-  /* ============ Tab3：小练笔 ============ */
+  /* ============ Tab3：小练笔（通用写作能力训练） ============ */
   function paneDrill(R, g) {
-    const issues = (R.report && R.report.issues) || [];
     const P = R.essay.paras || [];
     const drills = buildDrills(R, P, g);
 
-    return `<div class="drill-list">
+    return `<div class="drill-intro">按本篇暴露的短板，为你挑了 ${drills.length} 个<b>通用练笔专题</b>——内容与原文无关，练的是走到哪都用得上的写作基本功。素材可以抄进积累本。</div>
+    <div class="drill-list">
       ${drills.map((b, i) => `<div class="drill-card">
         <div class="dc-head">
           <span class="dc-n">${i + 1}</span>
           <span class="dc-t">${esc(b.key)}<em>· ${esc(b.focus)}</em></span>
         </div>
-        ${b.relatedTitle ? `<div class="dc-issue">对应问题：${esc(b.relatedTitle)}</div>`
-          : (b.relatedFallback ? `<div class="dc-issue">本项针对：${esc(b.relatedFallback)}</div>` : '')}
-        <div class="dc-row dc-prob"><span class="dc-k">问题</span><span class="dc-v">${esc(b.issue)}</span></div>
-        <div class="dc-row dc-idea"><span class="dc-k">思路</span><span class="dc-v">${esc(b.idea)}</span></div>
-        <div class="dc-row dc-demo"><span class="dc-k">例子</span><span class="dc-v">${esc(b.demo)}</span></div>
+        <div class="dc-row dc-prob"><span class="dc-k">练什么</span><span class="dc-v">${esc(b.issue)}</span></div>
+        <div class="dc-row dc-idea"><span class="dc-k">怎么写</span><span class="dc-v">${esc(b.idea)}</span></div>
+        <div class="dc-mat">
+          <span class="dc-k">素材积累</span>
+          <ul>${(b.materials || []).map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+        </div>
+        <div class="dc-task"><span class="dc-k">练笔任务</span><span>${esc(b.task || '')}</span></div>
       </div>`).join('')}
     </div>
-    <div class="upgrade-tip">写完可回到「写作思路」里的「具体问题与修改思路」，看是否正好改掉了自己的弱项。练笔不必长，80~120 字即可。</div>`;
+    <div class="upgrade-tip">每次练笔 80~150 字即可，贵在坚持：一周练两个专题，把素材本上的句子用进自己的作文里，能力就长在身上了。</div>`;
+  }
+
+  /* ============ 润色手法四类标记（与参考版式一致，界面与导出共用） ============ */
+  const TECH_MARKS = [
+    { key: 'm1', name: '动作 / 细节描写', color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
+    { key: 'm2', name: '感官描写', color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
+    { key: 'm3', name: '修辞手法', color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
+    { key: 'm4', name: '议论改叙述 / 点题', color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
+  ];
+  const techMarkOf = k => TECH_MARKS.find(t => t.key === k) || null;
+  const stripTechMarks = t => String(t == null ? '' : t).replace(/<\/?m[1-4]>/g, '');
+  /* 把 <m1>…</m1> 标记转成彩色片段；标记外文字保持正文黑 */
+  function paintTechMarks(text, wrap) {
+    const safe = esc(String(text == null ? '' : text));
+    return safe
+      .replace(/&lt;(m[1-4])&gt;([\s\S]*?)&lt;\/\1&gt;/g, (all, k, inner) => wrap(k, inner))
+      .replace(/&lt;\/?m[1-4]&gt;/g, '');
   }
 
   /* ============ Tab4：润色后文章 ============ */
-  function panePolish(R, g) {
+  function panePolish(R, g, d) {
     const P = R.essay.paras.filter(x => x && String(x).trim().length > 2);
     const title = R.essay.title || '未命名';
-    // 与导出一致：同一个润色器 + 同一份变更记录
-    const trace = [];
-    const polished = buildPolished(R, P, trace);
-    const notes = buildPolishNotes(trace, P, polished);
-    const marks = (trace && trace.marks) || [];
-    const words = polished.join('').replace(/\s/g, '').length;
+    const isDemo = !!(d && d.isDemo && typeof DEMO_POLISHED !== 'undefined');
 
-    /* 把每段的新增片段包成带分类颜色的 <mark>，与右侧说明卡片同色。
-     * 只在「关键新增句」上着色：同段多个区间按位置拼接，不重叠。
-     * 说明卡片里不再重复贴出这些原文，避免两处内容重复。 */
-    const highlightPara = (text, pi) => {
-      const raw = String(text || '');
-      const list = marks.filter(m => m.para === pi).sort((a, b) => a.start - b.start);
-      if (!list.length) return esc(raw);
-      let out = '', cursor = 0;
-      list.forEach(m => {
-        const st = Math.max(cursor, Math.min(raw.length, m.start));
-        const en = Math.max(st, Math.min(raw.length, m.end));
-        if (en <= st) return;
-        if (st > cursor) out += esc(raw.slice(cursor, st));
-        out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
-        cursor = en;
-      });
-      if (cursor < raw.length) out += esc(raw.slice(cursor));
-      return out;
-    };
+    let bodyParas, techList, words, inRange;
+    if (isDemo) {
+      // 演示稿：使用与参考版式逐字一致的润色稿 + 四类手法标记
+      bodyParas = DEMO_POLISHED.slice();
+      techList = DEMO_TECHNIQUES.slice();
+      words = bodyParas.map(stripTechMarks).join('').replace(/\s/g, '').length;
+      const rg = (g && g.range) || [450, 550];
+      inRange = words >= rg[0] && words <= rg[1];
+    } else {
+      // 真实稿：同一个润色器 + 同一份变更记录（与导出一致）
+      const trace = [];
+      const polished = buildPolished(R, P, trace);
+      const notes = buildPolishNotes(trace, P, polished);
+      const marks = (trace && trace.marks) || [];
+      words = polished.join('').replace(/\s/g, '').length;
+      const rg = (g && g.range) || [0, 99999];
+      inRange = words >= rg[0] && words <= rg[1];
+      const highlightPara = (text, pi) => {
+        const raw = String(text || '');
+        const list = marks.filter(m => m.para === pi).sort((a, b) => a.start - b.start);
+        if (!list.length) return esc(raw);
+        let out = '', cursor = 0;
+        list.forEach(m => {
+          const st = Math.max(cursor, Math.min(raw.length, m.start));
+          const en = Math.max(st, Math.min(raw.length, m.end));
+          if (en <= st) return;
+          if (st > cursor) out += esc(raw.slice(cursor, st));
+          out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
+          cursor = en;
+        });
+        if (cursor < raw.length) out += esc(raw.slice(cursor));
+        return out;
+      };
+      bodyParas = polished;
+      /* 手法说明落到本文真实例句（与例图一致：手法名 + 具体改了什么），
+       * 不再用"新增比喻与拟人"这类通用话术；detail 类不上手法清单 */
+      const techDesc = {
+        rhetoric: (items) => '运用比喻修辞，' + items.slice(0, 2).map(x => '「' + String(x).replace(/[。！？；]$/, '').slice(0, 24) + '」').join('、') + '，让抽象的感受变成可看的画面',
+        sense: (items) => '补进声音与触感，' + items.slice(0, 2).map(x => '「' + String(x).replace(/[。！？；]$/, '').slice(0, 24) + '」').join('、') + '，让场景可听可感',
+        action: (items) => '补充动作细节，' + items.slice(0, 2).map(x => '「' + String(x).replace(/[。！？；]$/, '').slice(0, 24) + '」').join('、') + '，人物形象更具体可感',
+        theme: (items) => '把空泛的议论改成具体落点，' + items.slice(0, 2).map(x => '「' + String(x).replace(/[。！？；]$/, '').slice(0, 24) + '」').join('、') + '，结尾照应前文不喊口号'
+      };
+      techList = notes.filter(n => techDesc[n.key]).map(n => ({
+        mark: ({ rhetoric: 'm3', sense: 'm2', action: 'm1', theme: 'm4' })[n.key],
+        text: techDesc[n.key]((n.items || []).map(x => x.text || x))
+      }));
+      var realRender = highlightPara;
+    }
+
+    const paraHTML = (t, pi) => isDemo
+      ? paintTechMarks(t, (k, inner) => {
+          const mk = techMarkOf(k);
+          return mk ? `<span class="tech-span" style="--c:${mk.color}">${inner}</span>` : inner;
+        })
+      : realRender(t, pi);
+
+    const techHTML = techList.length ? `<div class="tech-blk">
+      <div class="tech-head"><h4>本次使用的润色手法</h4><i></i>
+        <span class="tech-meta">${techList.length} 条 · 对照原文查看改动</span></div>
+      <ul class="tech-list">
+        ${techList.map(t => {
+          const mk = techMarkOf(t.mark);
+          const label = mk ? `<b class="tech-key" style="--c:${mk.color}">${esc(mk.name)}</b>` : '';
+          return `<li${mk ? ` style="--c:${mk.color}"` : ''}>${label}<span>${esc(t.text)}</span></li>`;
+        }).join('')}
+      </ul>
+    </div>` : '';
 
     return `<div class="card">
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">✎</span>润色后文章
         <span class="cnt">${words} 字 · ${g.name}要求 ${g.label || ''}</span></div>
       <div class="polish-paper">
         <div class="pp-title">${esc(title)}</div>
-        ${polished.map((t, pi) => `<p>${highlightPara(t, pi)}</p>`).join('')}
+        ${bodyParas.map((t, pi) => `<p>${paraHTML(t, pi)}</p>`).join('')}
       </div>
-    </div>
-    ${notes.length ? `<div class="card">
-      <div class="card-h"><span class="ic" style="background:#e9f6ef;color:#2f8f60">✓</span>本次润色说明
-        <span class="cnt">${notes.length} 项</span></div>
-      <div class="pn-sub2">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
-      <div class="pn-notes">
-        ${notes.map(n => `<div class="pn-note k-${n.key || 'plain'}">
-          <div class="pn-note-h"><i></i>${esc(n.name)}${n.items && n.items.length ? `<span class="pn-cnt">${n.items.length} 处</span>` : ''}</div>
-          <div class="pn-note-d">${esc(n.desc)}</div>
-        </div>`).join('')}
-      </div>
-    </div>` : ''}`;
+      <div class="range-note${inRange ? '' : ' warn'}">${inRange ? '字数落在本年级区间内' : '字数偏离本年级要求区间，建议增删细节后重试'}</div>
+      ${techHTML}
+    </div>`;
   }
 
   function switchTab(k) {
@@ -2805,7 +3159,7 @@
     toastTimer = setTimeout(() => t.classList.remove('on'), ms || 2200);
   }
 
-  // 启动/重置为演示作文：白板显示《那一刻，我长大了》，带四色批注框，但报告未生成
+  // 启动/重置为演示作文：白板显示《外婆的蒲扇》，带四色批注框，但报告未生成
   function loadDemo(reset, clean) {
     state.docs = [];
     state.note = '';
@@ -2831,26 +3185,29 @@
     const lineX = P.PAD_X / P.W;
     const lineW = P.LINE_W / P.W;
 
-    // 逐句对应 DEMO_LINES 的行号（0 起）
+    // 逐句对应 DEMO_LINES 的行号（0 起，连续成段排版共 19 行，段首行 [0,4,8,12,16]）
     const items = [
       { row: 0, type: 'good', side: 'left',
-        quote: '窗外的梧桐叶被风翻了一下',
-        html: '<b>“窗外的梧桐叶被风翻了一下，露出背面浅浅的银色”</b>开篇就是一个具体画面，一落笔把人带进场景，没有空喊抒情。<u>这个写法请保留</u>。' },
-      { row: 3, type: 'polish', side: 'right',
-        quote: '妈妈在厨房里弯腰拣菜',
-        html: '<b>“妈妈在厨房里弯腰拣菜”</b>已有一个好动作，可再补一处身体细节：<b>“手指在围裙上蹭了两下”</b>，人物会更立体。' },
-      { row: 4, type: 'err', side: 'left',
-        quote: '可我又坐回去了',
-        html: '<b>“可我又坐回去了”</b>与上句之间缺一个原因，读者会觉得跳跃。建议补半句：<b>“可话到嘴边，我又缩了回去”</b>。' },
-      { row: 7, type: 'dele', side: 'right',
-        quote: '原来有些话，是要等长大了才听得懂的',
-        html: '<b>“原来有些话，是要等长大了才听得懂的”</b>偏总结式，与后文“那个笑我记得”意思重复，<u>可删去</u>，把道理留给读者。' },
-      { row: 11, type: 'polish', side: 'left',
-        quote: '那时候我还嫌她手太粗糙',
-        html: '<b>“那时候我还嫌她手太粗糙”</b>可与上句合并成对比句：<b>“她的手背划得我发痒，我却抽回了手”</b>，反差更明显。' },
-      { row: 16, type: 'good', side: 'right',
-        quote: '那个笑，我到现在还记得',
-        html: '<b>“那个笑，我到现在还记得”</b>收得干净，停在画面上不下结论，是<u>很好的留白式结尾</u>。' }
+        quote: '扇面黄黄的，边上磨出了毛',
+        html: '<b>“扇面黄黄的，边上磨出了毛，扇柄被手磨得发亮”</b>开篇不写「外婆爱我」，先给一把有年头的扇子——物件一出场，感情就有了落点。<u>这个写法请保留</u>。' },
+      { row: 3, type: 'dele', side: 'right',
+        quote: '我曾以为，那把扇子早就该扔了',
+        html: '<b>“我曾以为，那把扇子早就该扔了”</b>这个「嫌弃」埋得好，是后文读懂的伏笔；但「电风扇比它凉快多了」偏解释，<u>可删去后半句</u>，让嫌弃停在态度上。' },
+      { row: 6, type: 'polish', side: 'left',
+        quote: '她说，外婆不怕热',
+        html: '<b>“她说，外婆不怕热”</b>是全文最动人的一句原话——嘴上说不热，汗却说了实话。<u>请保留原话</u>，不要转述成「她说不热」。' },
+      { row: 7, type: 'polish', side: 'right',
+        quote: '看见她还在扇，额头上全是汗',
+        html: '<b>“看见她还在扇”</b>是题眼，却一句带过。把「还在扇」拆开：<b>“手腕一顿一顿的，汗顺着皱纹往下淌”</b>，画面就立住了。' },
+      { row: 11, type: 'err', side: 'left',
+        quote: '那天夜里我很感动',
+        html: '<b>“我很感动”</b>在直接说结果，读者接收不到画面。换成身体反应：<b>“我盯着墙上那团扇影，鼻子忽然一酸”</b>。' },
+      { row: 14, type: 'good', side: 'right',
+        quote: '只是把扇子上的灰擦了又擦',
+        html: '<b>“把扇子上的灰擦了又擦”</b>被拒绝后不辩解、只擦灰，一个动作写尽了外婆的委屈与不舍，<u>细节胜过千言</u>。' },
+      { row: 18, type: 'dele', side: 'left',
+        quote: '我明白了，爱就是这样一代一代传下来的',
+        html: '<b>“我明白了，爱就是这样一代一代传下来的”</b>偏口号，与前文叙述脱节，<u>可删去</u>——回到蒲扇或皂角味收束，把道理留给读者。' }
     ];
 
     return items.map((it, i) => ({
@@ -3094,13 +3451,25 @@
       const wasBusy = btn ? btn.classList.contains('busy') : false;
       state.exporting = true;
       if (btn) { btn.disabled = true; btn.classList.add('busy'); }
-      if (label) label.textContent = '生成中';
       try {
         const o = buildExportData(d);
-        window.ZPEXPORT.exportHTML(o);
-        toast('HTML 已开始下载');
-        if (label) label.textContent = '已完成';
-        await wait(700);
+        const suggest = '紫微星-' + String(d.name || o.title || '作文批改报告').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
+        if (window.ZPNATIVE && window.ZPNATIVE.saveHTML) {
+          // 桌面版：弹「保存到」对话框，用户自选位置后写盘；取消则静默结束
+          const html = window.ZPEXPORT.buildDocument(o);
+          const res = await window.ZPNATIVE.saveHTML(html, suggest);
+          if (res && res.canceled) return;
+          if (label) label.textContent = '已保存';
+          toast('HTML 已保存：' + (res.fileName || ''), 3600);
+          await wait(900);
+        } else {
+          // 网页版兜底：浏览器下载（无法自选位置，落到默认下载目录）
+          if (label) label.textContent = '生成中';
+          window.ZPEXPORT.exportHTML(o);
+          toast('HTML 已开始下载');
+          if (label) label.textContent = '已完成';
+          await wait(700);
+        }
       } catch (e) {
         console.error(e);
         toast('导出失败：' + (e.message || '未知错误'));
@@ -3111,6 +3480,51 @@
       }
     };
     const _hb = $('#btnExportHTML'); if (_hb) _hb.onclick = () => doExport();
+
+    /* ===== PDF · 一键导出 =====
+     * 桌面版：点击 → 原生「保存到」对话框 → 选位置保存 → 后台排版写盘 → 提示已保存，
+     * 全程无打印界面。网页版：离屏排版后走浏览器打印管线（目标选"另存为 PDF"）。 */
+    const doExportPDF = async () => {
+      const d = activeDoc();
+      if (!d || !d.result) { toast('请先完成批改再导出'); return; }
+      if (!window.ZPEXPORT) { toast('导出组件未加载'); return; }
+      if (state.exporting) { toast('正在生成，请稍候'); return; }
+      const btn = $('#btnExportPDF');
+      const label = btn ? btn.querySelector('span') : null;
+      const oldText = label ? label.textContent : '';
+      state.exporting = true;
+      if (btn) { btn.disabled = true; btn.classList.add('busy'); }
+      try {
+        const o = buildExportData(d);
+        if (window.ZPNATIVE && window.ZPNATIVE.hasPDF) {
+          const html = window.ZPEXPORT.buildDocument(o);
+          const suggest = '紫微星-' + String(d.name || o.title || '作文批改报告').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
+          // 保存对话框在原生侧弹出；用户取消时返回 canceled，静默结束
+          const res = await window.ZPNATIVE.exportPDF(html, suggest);
+          if (res && res.canceled) return;
+          if (label) label.textContent = '已保存';
+          toast('PDF 已保存：' + (res.fileName || ''), 3600);
+          await wait(900);
+        } else {
+          // 网页版：排版就绪后调浏览器打印（目标选「另存为 PDF」）
+          if (label) label.textContent = '排版中';
+          toast('正在排版，稍后请在打印窗口选择「另存为 PDF」', 4200);
+          await window.ZPEXPORT.exportPDFWeb(o);
+          if (label) label.textContent = '已发送';
+          await wait(900);
+        }
+      } catch (e) {
+        console.error(e);
+        toast('PDF 导出失败：' + (e.message || '未知错误'), 3200);
+      } finally {
+        state.exporting = false;
+        if (btn) btn.disabled = false;
+        if (btn) btn.classList.remove('busy');
+        if (label) label.textContent = oldText;
+      }
+    };
+    const _pb = $('#btnExportPDF');
+    if (_pb) _pb.onclick = () => doExportPDF();
 
     // 快捷键
     document.addEventListener('keydown', e => {
@@ -3340,12 +3754,14 @@
       return { text: b.slice(st, en), start: st, end: en };
     };
 
-    /* 归类：比喻优先于动作，动作优先于感官 */
+    /* 归类：比喻优先于动作，动作优先于感官；
+     * 点题信号（明白/原来/精神/勇气类总结）优先于动作，
+     * 否则"我要学习武松打虎的精神"会因含"打"被误归动作类。 */
     const classify = (t) => {
       if (/(像|仿佛|好似|如同).{2,}/.test(t)) return 'rhetoric';
-      if (/(攥|搓|擦|拢|抹|掀|垂|缩|倾|撑|勾|托|跺|鼓|屏|蹭|踩|捻|捋|捏|抓|跑|走|站|坐|抬|低|举|伸|按|拍|摇|摆|甩|弯|蹲|趴|扑|拽|拎|捧|抚|挠|踢|跨|迈)/.test(t)) return 'action';
-      if (/(听见|闻到|摸到|尝到|凉|暖|烫|冷|响|香|光|影|粗糙|软|味|气息|青草|阳光)/.test(t)) return 'sense';
-      if (/(我明白了|我懂得了|原来|终于|才明白|才知道|至今|每次看见)/.test(t)) return 'theme';
+      if (/(我明白了|我懂得了|原来|终于明白|才明白|才知道|至今|每次看见|我要学习|的精神|真正的|勇敢地面|迎难而上)/.test(t)) return 'theme';
+      if (/(攥|搓|擦|拢|抹|掀|垂|缩|倾|撑|勾|托|跺|鼓|屏|蹭|踩|捻|捋|捏|抓|跑|走|站|坐|抬|低|举|伸|按|拍|摇|摆|甩|弯|蹲|趴|扑|拽|拎|捧|抚|挠|踢|跨|迈|敲|深吸|舒展|渗)/.test(t)) return 'action';
+      if (/(听见|闻到|摸到|尝到|凉|暖|烫|冷|响|香|光|影|粗糙|软|味|气息|青草|阳光|心跳|咚咚|沙沙|喧闹)/.test(t)) return 'sense';
       return 'detail';
     };
 
@@ -3355,10 +3771,12 @@
     const seen = new Set();
     const paraN = Math.max(origP.length, newP.length);
 
-    /* 把新增区域按「句子」切开：一个新增段里往往有好几句，
-     * 参考图的观感是「一句一种颜色、长短不一、排布错落」，
-     * 整段涂成一块反而显得死板。这里按 。！？； 切成句子，
-     * 再对每句单独归类上色，颜色自然就丰富了。 */
+    /* 逐段找新增区域，按句切开、逐句归类 —— 但**不是每句都上色**。
+     * 参考版式的观感：整篇黑字为主，只有几句关键改写带颜色。
+     * 之前把 diff 出的所有句子全涂色，AI 大改时整篇 90%+ 都是彩底，
+     * 这里改为「候选打分 + 全文限额」：每段最多 2 句、全文最多 8 句、
+     * 总着色不超过全文 30%，优先挑修辞/感官/点题这类有教学价值的句子。 */
+    const candidates = [];
     for (let i = 0; i < paraN; i++) {
       const sp = addedSpan(origP[i] || '', newP[i] || '');
       if (!sp) continue;
@@ -3374,36 +3792,75 @@
         buf += ch;
         if (/[。！？；!?;]/.test(ch)) {
           const t = buf.trim();
-          if (t.length >= 4) sents.push({ text: t, start: sp.start + bufStart, end: sp.start + k + 1 });
+          if (t.length >= 6) sents.push({ text: t, start: sp.start + bufStart, end: sp.start + k + 1 });
           buf = '';
           bufStart = k + 1;
         }
       }
       const tail = buf.trim();
-      if (tail.length >= 4) sents.push({ text: tail, start: sp.start + bufStart, end: sp.start + segText.length });
-      /* 整段没有句末标点时，退化成按分句（，、）切，避免又回到一大块 */
-      if (!sents.length) {
-        let cs = 0;
-        for (let k = 0; k < segText.length; k++) {
-          if (/[，,、]/.test(segText[k])) {
-            const t = segText.slice(cs, k + 1).trim();
-            if (t.length >= 4) sents.push({ text: t, start: sp.start + cs, end: sp.start + k + 1 });
-            cs = k + 1;
-          }
-        }
-        const lastT = segText.slice(cs).trim();
-        if (lastT.length >= 4) sents.push({ text: lastT, start: sp.start + cs, end: sp.start + segText.length });
-      }
+      if (tail.length >= 6) sents.push({ text: tail, start: sp.start + bufStart, end: sp.start + segText.length });
 
       sents.forEach(sn => {
         const dk = i + '|' + sn.text.slice(0, 12);
         if (seen.has(dk)) return;
         seen.add(dk);
         const key = classify(sn.text);
-        buckets[key].push({ text: sn.text, para: i + 1 });
-        marks.push({ para: i, start: sn.start, end: sn.end, key });
+        const len = sn.text.replace(/\s/g, '').length;
+        /* 打分：类别教学价值 > 句长适中 > 带具体细节；太长的整句复述降权 */
+        let score = ({ rhetoric: 5, sense: 4, theme: 4, action: 3, detail: 1 })[key] || 1;
+        if (len >= 10 && len <= 42) score += 2;
+        else if (len > 60) score -= 3;
+        if (/(像|仿佛|如同)/.test(sn.text)) score += 1;
+        candidates.push({ para: i, start: sn.start, end: sn.end, key, text: sn.text, score, len });
       });
     }
+
+    /* 全文限额挑选：**先保证四类手法各占一席**（动作/感官/修辞/点题），
+     * 再按分数补满。之前纯按分数排，修辞/感官分高就占满名额，
+     * 报告里只剩两类手法，与"各种润色都有"的预期不符。
+     * 限额：每段最多 2 句、全文最多 8 句、总着色 ≤30%。 */
+    const totalLen = newP.join('').replace(/\s/g, '').length || 1;
+    const maxLen = Math.floor(totalLen * 0.3);
+    const perPara = {};
+    let usedLen = 0, usedCnt = 0;
+    const picked = [];
+    const take = (c) => {
+      picked.push(c);
+      perPara[c.para] = (perPara[c.para] || 0) + 1;
+      usedLen += c.len; usedCnt++;
+    };
+    const canTake = (c, strict) => {
+      if (usedCnt >= 8) return false;
+      if ((perPara[c.para] || 0) >= 2) return false;
+      if (strict && usedLen + c.len > maxLen && picked.length >= 3) return false;
+      return true;
+    };
+    /* 第一轮：每类挑分数最高的一句（类别轮转，放宽长度限额保证四类齐全） */
+    const byScore = candidates.slice().sort((a, b) => b.score - a.score || a.para - b.para || a.start - b.start);
+    const CATS = ['action', 'sense', 'rhetoric', 'theme'];
+    const usedCat = new Set();
+    for (const cat of CATS) {
+      const c = byScore.find(x => x.key === cat && !picked.includes(x) && canTake(x, false));
+      if (c) { take(c); usedCat.add(cat); }
+    }
+    /* detail 类只在四类没凑齐时补位（它教学价值最低） */
+    if (usedCat.size < 3) {
+      const c = byScore.find(x => x.key === 'detail' && !picked.includes(x) && canTake(x, false));
+      if (c) take(c);
+    }
+    /* 第二轮：按分数补满剩余名额，恢复长度限额 */
+    for (const c of byScore) {
+      if (picked.includes(c)) continue;
+      if (!canTake(c, true)) continue;
+      take(c);
+    }
+    /* 兜底：一句都没挑出来但确有改动时，取分数最高的一句，保证图例不空 */
+    if (!picked.length && candidates.length) picked.push(candidates[0]);
+    picked.sort((a, b) => a.para - b.para || a.start - b.start);
+    picked.forEach(c => {
+      buckets[c.key].push({ text: c.text, para: c.para + 1 });
+      marks.push({ para: c.para, start: c.start, end: c.end, key: c.key });
+    });
 
     const push = (kind, list) => {
       if (!list.length) return;
@@ -3627,172 +4084,134 @@
     return notes.slice(0, 6);
   }
 
-  /* ================= 小练笔：按本文真实内容动态生成 =================
-   * 不再使用固定题库——每条练习都锚定本文的原句、原问题和真实细节，
-   * 保证同一篇作文每次生成一致，不同作文互不相同。
-   *
-   * 每条练习的结构（对齐参考排版）：
-   *   { key, focus, issue: 存在的问题, idea: 思路, demo: 例子 }
+  /* ================= 小练笔：通用写作能力训练 =================
+   * 定位：不是改这篇作文，而是按本文暴露的短板类型，匹配"通用练笔专题"。
+   * 每条 = 训练目标 + 写作思路（怎么想怎么写）+ 可积累素材 + 练笔任务，
+   * 素材与例句均与原文无关，重在方法迁移与日常积累。
+   * 结构：{ key, focus, why(练什么), idea(思路), materials(素材[]), task(任务) }
    */
+  const DRILL_BANK = [
+    { key: '人物细节描写', focus: '用特写镜头写活一个人',
+      match: /动作|细节|概括|镜头|人物|画面/,
+      why: '写人最怕"他很辛苦""她很温柔"这类概括。学会抓手部动作、习惯动作、职业痕迹，人物立刻站起来。',
+      idea: '闭眼想一个熟悉的人：他坐下先动哪个部位？手上有什么洗不掉的东西？紧张时有什么小动作？选三个最有"这个人味儿"的细节，按"大动作→小动作→习惯动作"排列，中间不加形容词。',
+      materials: [
+        '他把袖口往上撸了两下，露出手腕上一道旧疤。',
+        '奶奶数钱时先往指腹上啐一口，捻开，再对着光看一眼。',
+        '爷爷看电视时脚趾在袜子里一下一下地动，像在打拍子。',
+        '修车的师傅擦手，总是先搓指缝，再抹掌心，最后甩两下。'
+      ],
+      task: '写一个你熟悉的人，120 字左右，不出现"辛苦、温柔、勤劳"这类评价词，只让动作说话。' },
+    { key: '五感观察', focus: '让场景可听可闻可触',
+      match: /感官|听觉|视觉|触觉|声音|气味/,
+      why: '只会写"看见"，场景就是平面的。补上声音、气味、触感，读者才能"走进"你写的世界。',
+      idea: '选一个日常场景（厨房、雨天、放学路上），闭眼回忆：最清楚的一个声音是什么？空气里什么味道？皮肤碰到什么感觉？每种感官只写一句，宁少勿滥。',
+      materials: [
+        '听觉：油锅"刺啦"一声，葱花下了锅，抽油烟机嗡嗡地追在后面。',
+        '嗅觉：晒过的被子有太阳的味道，抱起来像抱住一个暖烘烘的下午。',
+        '触觉：冬天的铁门把手冰得咬手，握上去指尖一缩。',
+        '味觉：第一口冰汽水扎得舌根发麻，气泡在喉咙里噼啪作响。'
+      ],
+      task: '写"放学路上的五分钟"，150 字，至少用上三种感官，每种不超过一句。' },
+    { key: '情绪外化', focus: '把心情写成身体反应',
+      match: /情绪|感动|难过|结论|直说|身体反应|抒情/,
+      why: '"我很感动"是把答案告诉读者；"鼻子一酸"是让读者自己感动。情绪要藏在身体里。',
+      idea: '建一张"情绪→身体"对照表：紧张时手心怎样？委屈时喉咙怎样？开心时嘴角怎样？写作时先划掉心情词，再从表里挑一个最准的反应，配一个小动作。',
+      materials: [
+        '紧张：手心的汗把准考证的边角洇软了，我把它在裤缝上蹭了又蹭。',
+        '委屈：喉咙里像塞了一团湿棉花，咽不下去，也吐不出来。',
+        '开心：嘴角压不住地往上翘，我只好低头假装找橡皮。',
+        '不舍：我数着地砖的格子往前走，故意走得很慢很慢。'
+      ],
+      task: '写"等待发试卷的两分钟"，100 字，全文不出现"紧张、害怕、担心"。' },
+    { key: '比喻训练营', focus: '喻体要从生活里长出来',
+      match: /比喻|修辞|喻体|形象|生动/,
+      why: '"像蝴蝶""像天使"是用滥的比喻。好喻体来自你真实见过的东西，最好带动作或磨损感。',
+      idea: '玩"它像什么"游戏：挑一样东西（旧书包、皱纹、月亮），强迫自己想出三个生活里的喻体，再挑最有画面感的那个，往后延一句写它的细节。',
+      materials: [
+        '旧书包像一块用久的橡皮，四个角都磨圆了。',
+        '外婆的皱纹像晒干的核桃壳，一笑就全挤到一起。',
+        '月亮像被谁咬了一口的烧饼，缺口处还留着毛边。',
+        '那句话像一颗小石子投进井里，半天才听见回声。'
+      ],
+      task: '给"风、灯光、书包"各写一个比喻句，喻体必须是家里或上学路上见过的东西。' },
+    { key: '断句与节奏', focus: '长短句交替，会呼吸的句子',
+      match: /长句|断句|节奏|逗号|喘|句式/,
+      why: '一口气 40 字的长句读着累，全是短句又太碎。节奏感=长短交替+关键处短句收住。',
+      idea: '写完一段读出声：哪里喘不上气，就在转折词（可、但、却、于是）前断开；情绪最重的那一句，单独成句，控制在 4~8 字。',
+      materials: [
+        '长句拆短：他跑了。鞋带散了也不管，书包在背后一颠一颠。',
+        '短句收重：我等了很久。门开了。不是妈妈。',
+        '长短交替：雨点砸在铁皮棚上，噼里啪啦，像有人在头顶炒豆子。忽然停了。静得能听见水沿着棚沿往下爬。'
+      ],
+      task: '写"一场突然的雨"，120 字，至少一处 4~8 字短句单独成句，无超过 30 字的长句。' },
+    { key: '对话与现场感', focus: '一句原话顶十句转述',
+      match: /对话|原话|台词|语言|转述/,
+      why: '"妈妈让我先写作业"是转述；"你先写作业，这点事妈自己来"是现场。人物一开口，场景就活了。',
+      idea: '回忆家人常说的口头禅，挑一句最像"他本人"的。写对话时前后各配半句动作：说这话时他的手在干什么？眼睛看哪里？',
+      materials: [
+        '"多吃点，锅里还有。"奶奶说这话时，筷子已经把鸡腿夹到了我碗里。',
+        '"没事，爸在呢。"他把手掌按在我肩膀上，按得很实。',
+        '"你自己想清楚。"老师把卷子推回来，指尖在桌上点了两下。'
+      ],
+      task: '写一段两人对话（6 句以内），每句对话都带一个小动作，不用"说"以外的提示语堆砌。' },
+    { key: '结尾留白', focus: '把道理藏进画面里',
+      match: /结尾|口号|议论|点题|总结|留白/,
+      why: '"我明白了爱是伟大的"是喊口号。高级的结尾停在画面或实物上，让读者自己品出道理。',
+      idea: '三种留白结尾练起来：①实物收束——让开头出现的东西最后再出现一次；②动作收束——停在一个人物动作上；③景物收束——让景物替你说心情。都不解释。',
+      materials: [
+        '实物：那把伞我一直没换。伞骨断了一根，撑开时歪着一边，像它主人走路的样子。',
+        '动作：她站在门口挥手。车开出很远，后视镜里那个身影还在挥。',
+        '景物：天晴了。窗台上的水珠一颗一颗往下掉，掉得很慢，很有耐心。'
+      ],
+      task: '给"一次分别"写三种结尾（各 40 字内），全部不出现"爱、感动、明白"。' },
+    { key: '环境映衬', focus: '让景物替人物说话',
+      match: /环境|景物|借景|氛围/,
+      why: '心情不好时写"天灰蒙蒙的"太直白。让环境"动"起来跟着情绪变，含蓄又有力量。',
+      idea: '选一个会变的东西：光、风、雨、影子、声音。情绪转折那一刻让它变一下——不写心情词，读者自然懂。',
+      materials: [
+        '云把太阳挡住了，屋里一下子暗下来，作业本上的字都灰了。',
+        '风把窗帘吹起来，又落下去，像谁欲言又止。',
+        '绿灯亮了。他还没动，后面的自行车铃响了一串。'
+      ],
+      task: '写"听到一个好消息前后的教室"，100 字，只写环境变化，不写心情词。' }
+  ];
+
   function buildDrills(R, P, g) {
     const paras = (P || []).filter(x => x && String(x).trim().length > 4);
     const issues = (R.report && R.report.issues) || [];
-    const cnt = s => String(s || '').replace(/\s+/g, '').length;
-    const short = (t, n) => {
-      const s = String(t || '').replace(/\s+/g, '');
-      return s.length > n ? s.slice(0, n) + '…' : s;
-    };
-    // 抽出可复用的真实短语（按标点切分，取 6~18 字的片段）
-    const phrases = [];
-    paras.forEach(t => {
-      String(t).split(/[，。！？；：、]/).forEach(seg => {
-        const s = seg.replace(/\s+/g, '');
-        if (cnt(s) >= 5 && cnt(s) <= 18) phrases.push(s);
-      });
-    });
-    const pick = (i) => phrases.length ? phrases[i % phrases.length] : '';
-
     const full = paras.join('');
-    const hasDialog = /[“"][^”"]{2,}[”"]/.test(full);
-    const hasSense = /(听见|闻到|摸到|凉|暖|响|香|光|影|烫|冷|粗糙|软)/.test(full);
-    const hasSimile = /(像|仿佛|好似|如同)/.test(full);
-    const longSent = paras.find(t => /[^。！？；]{42,}/.test(t)) || '';
-    const longest = paras.reduce((a, b) => (cnt(b) > cnt(a) ? b : a), paras[0] || '');
-    const actionSent = paras.find(t => /(走|坐|站|拿|放|抬|低|握|握紧|伸|缩|转|看|望|擦|洗|推|拉)/.test(t)) || '';
 
-    // 挑出最值得练的三类，按本文短板优先
-    const cands = [];
+    /* 短板信号：批改问题 + 文本特征，共同决定优先练什么 */
+    const signals = [];
+    issues.forEach(it => signals.push((it.title || '') + ' ' + (it.desc || '')));
+    if (!/(听见|闻到|摸到|凉|暖|响|香|气味|粗糙|软)/.test(full)) signals.push('感官 声音 触觉');
+    if (!/(像|仿佛|好似|如同)/.test(full)) signals.push('比喻 修辞');
+    if (!/[“"][^”"]{2,}[”"]/.test(full)) signals.push('对话 原话');
+    if (paras.some(t => /[^。！？；]{42,}/.test(t))) signals.push('长句 断句');
+    if (/(很|非常|特别)(感动|难过|开心|紧张|害怕)/.test(full)) signals.push('情绪 直说 身体反应');
+    if (/(我明白了|我懂得了|原来这就是)/.test(full)) signals.push('结尾 口号 总结');
 
-    // ① 若是长句问题，练「断句与节奏」，锚定那句原文
-    if (longSent) {
-      cands.push({
-        key: '断句与节奏', focus: '把长句拆成有呼吸的短句',
-        issue: `文中有句子超过 40 字未断开，一口气读不完：「${short(longSent, 20)}」`,
-        idea: '先找到“可、但、于是、却、因为”这类转折或因果词，在它前面断开；断完前后各留半句，读一遍不喘气就对了。',
-        demo: `「${short(longSent, 26)}」拆成两句后：「${short(longSent, 13)}。${short(longSent.slice(13), 13)}」`
-      });
-    }
+    /* 按信号给专题打分，取前三；同分时保持题库顺序，结果稳定 */
+    const scored = DRILL_BANK.map((d, i) => ({
+      d, i,
+      score: signals.reduce((s, t) => s + (d.match.test(t) ? 1 : 0), 0)
+    }));
+    scored.sort((a, b) => b.score - a.score || a.i - b.i);
+    const picked = scored.slice(0, 3).map(x => x.d);
 
-    // ② 若缺感官细节，练「感官描写」，锚定原文场景
-    if (!hasSense || cands.length < 3) {
-      const base = actionSent || longest || '';
-      cands.push({
-        key: '感官描写', focus: '给同一个场景补一声音、一触感',
-        issue: cands.some(c => c.key === '感官描写')
-          ? '文中的动作已有，但只有“看见”，缺少声音和触感，读者进不到现场。'
-          : `「${short(base, 18)}」这一处目前只写了看到的画面，缺声音和触感。`,
-        idea: '不要另起一段写，就在原句后面接半句：先想当时环境里最清楚的一个声音，再想手或皮肤碰到的东西。两句都别超过 20 字。',
-        demo: base
-          ? `在「${short(base, 14)}」后面加半句：「……；水龙头没关紧，滴答、滴答，一下一下敲在瓷盆上。」`
-          : '「她说话的时候，抽油烟机还在响，手背上有一层薄薄的凉。」'
-      });
-    }
-
-    // ③ 若动作概括，练「动作分解」，锚定原文动作
-    if (actionSent || cands.length < 3) {
-      const a = actionSent || '';
-      cands.push({
-        key: '动作分解', focus: '把一个动作拆成三拍来写',
-        issue: a
-          ? `「${short(a, 18)}」是一个整体动作，一笔带过，读者看不到过程。`
-          : '文中的动作多为整体交代，缺少过程，人物显得“不会动”。',
-        idea: '把一个动作拆成“手先动 → 身子跟 → 脚或眼睛最后收”三拍，每拍只用一个最准确的动词，中间可以用分号。',
-        demo: a
-          ? `原句「${short(a, 14)}」改成：「手撑在桌沿，身子往前倾了一下，又慢慢收回去。」`
-          : '「手撑在桌沿，身子往前倾了一下，脚却没动，又慢慢缩回去。」'
-      });
-    }
-
-    // ④ 若缺对话，练「用原话写场景」
-    if (!hasDialog && cands.length < 3) {
-      cands.push({
-        key: '对话描写', focus: '用一句原话代替心理独白',
-        issue: '全篇没有人物原话，情绪全靠叙述交代，读者听不到声音。',
-        idea: '在最关键的那一处，把“我想说”改成“我说出口的那一句”，只写一句，前后各留半句动作。',
-        demo: '「她说，你先写作业，这点事妈自己来。」说这句话时，她正把我的手往旁边拨了一下。'
-      });
-    }
-
-    // ⑤ 若比喻欠具体，练「找贴切的喻体」
-    if (!hasSimile && cands.length < 3) {
-      cands.push({
-        key: '比喻具体化', focus: '喻体要来自生活，别用空泛的词',
-        issue: '文中几乎没有比喻，描写多靠形容词；或比喻的喻体离生活太远，落不到画面。',
-        idea: '挑文中最重要的一个“物”或“人”，问自己：它在生活中像什么见过的东西？最好带动作或磨损感。',
-        demo: `把「${short(pick(1), 12)}」里的形容换掉，改成：「她的背影像一张被反复折过的纸，折痕处已经发白。」`
-      });
-    }
-
-    // ⑥ 兜底：环境映衬情绪
-    if (cands.length < 3) {
-      cands.push({
-        key: '环境映衬', focus: '让环境跟着人物情绪变化',
-        issue: '情绪转折处直接写“我很难过/我明白了”，没有借景。',
-        idea: '选一个会变的东西：光、风、雨、影子；在情绪转折那一刻让它变一下，不写心情词。',
-        demo: '云把太阳挡住了，屋里一下子暗下来；窗台的绿萝垂下去，叶尖上还挂着一滴水。'
-      });
-    }
-
-    // 优先选与批改问题直接相关的
-    const hitKey = (it) => {
-      const t = (it.title || '') + (it.desc || '');
-      if (/长句|断句|节奏|逗号/.test(t)) return '断句与节奏';
-      if (/感官|听觉|视觉|触觉|细节/.test(t)) return '感官描写';
-      if (/动作|描写|镜头/.test(t)) return '动作分解';
-      if (/对话|原话|台词/.test(t)) return '对话描写';
-      if (/比喻|修辞|形象/.test(t)) return '比喻具体化';
-      if (/抒情|议论|口号|直说/.test(t)) return '环境映衬';
-      return null;
-    };
-    const wanted = [];
-    issues.forEach(it => { const k = hitKey(it); if (k && !wanted.includes(k)) wanted.push(k); });
-
-    const ordered = [
-      ...cands.filter(c => wanted.includes(c.key)),
-      ...cands.filter(c => !wanted.includes(c.key))
-    ].slice(0, 3);
-
-    // 补上「对应问题」：按练习类型匹配问题，而不是按顺序硬配
-    const matchIssue = (key) => {
-      const want = {
-        '断句与节奏': /长句|断句|节奏|逗号|喘/,
-        '感官描写': /感官|听觉|视觉|触觉|声音|画面偏弱/,
-        '动作分解': /动作|过程|概括/,
-        '对话描写': /对话|原话|台词/,
-        '比喻具体化': /比喻|修辞|喻体/,
-        '环境映衬': /抒情|议论|口号|直说/
-      }[key];
-      if (!want) return null;
-      // 只按标题匹配，避免正文里偶然出现的“对话”“动作”等词造成误配
-      const hitTitle = issues.find(it => want.test(it.title || ''));
-      if (hitTitle) return hitTitle;
-      // 标题未命中时才看描述，且要求是问题主体（排除规范类泛描述）
-      return issues.find(it => {
-        if (/标点|通读|错别字/.test(it.title || '')) return false;
-        return want.test(it.desc || '');
-      }) || null;
-    };
-    return ordered.map((c, i) => {
-      const it = matchIssue(c.key);
-      return {
-        key: c.key,
-        focus: c.focus,
-        issue: c.issue,
-        idea: c.idea,
-        demo: c.demo,
-        relatedTitle: it ? it.title : '',
-        relatedDesc: it ? (it.desc || '') : '',
-        // 没有直接对应的问题时，说明这条练笔补的是哪类短板
-        relatedFallback: it ? '' : ({
-          '断句与节奏': '全文节奏',
-          '感官描写': '细节描写',
-          '动作分解': '动作描写',
-          '对话描写': '人物语言',
-          '比喻具体化': '语言表现力',
-          '环境映衬': '情绪表达'
-        }[c.key] || '描写能力')
-      };
-    });
+    return picked.map(d => ({
+      key: d.key,
+      focus: d.focus,
+      issue: d.why,            // 兼容旧字段：现在放"为什么练这个"
+      idea: d.idea,
+      demo: d.materials[0],    // 兼容旧字段：首条素材作示例
+      materials: d.materials.slice(),
+      task: d.task,
+      relatedTitle: '',
+      relatedDesc: '',
+      relatedFallback: d.focus
+    }));
   }
 
   /* ================= 导出数据组装 ================= */
@@ -3801,15 +4220,16 @@
     const R = d.result;
     const P = base.paras;
     const g = GRADES.find(x => x.id === (d.gradeId || state.gradeId)) || GRADES[0];
-    const genreObj = GENRES.find(g2 => g2.id === d.genreId) || {};
+    const genreObj = genreById(d.genreId) || {};
 
     // 润色稿：复用面板逻辑，同时记录本次改了哪些内容
     const polishTrace = [];
-    const polished = buildPolished(R, P, polishTrace);
+    const isDemoDoc = !!(d && d.isDemo && typeof DEMO_POLISHED !== 'undefined');
+    const polished = isDemoDoc ? DEMO_POLISHED.map(stripTechMarks) : buildPolished(R, P, polishTrace);
     const polishNotes = buildPolishNotes(polishTrace, P, polished);
 
 
-    // 小练笔：与右侧面板同源，均按本文内容动态生成
+    // 小练笔：与右侧面板同源，按短板匹配通用练笔专题（内容与原文无关）
     const drills = buildDrills(R, P, g).map((b, i) => ({
       ...b,
       issue: b.issue,
@@ -3823,6 +4243,8 @@
     return Object.assign(base, {
       polished, polishNotes,
       polishMarks: (polishTrace && polishTrace.marks) || [],
+      // 演示稿导出与界面同源：带 <m1>~<m4> 标记的润色稿 + 四条手法
+      demoPolish: isDemoDoc ? { title: DEMO_TITLE, paras: DEMO_POLISHED.slice(), techniques: DEMO_TECHNIQUES.slice() } : null,
       drills, imgW: imgMeta.imgW, imgH: imgMeta.imgH,
       genreTips: (genreObj.tips || []).slice(0, 3),
       genreName: genreObj.name || ''
@@ -4020,7 +4442,7 @@
     const list = loadHistory();
     const rows = list.length ? list.map(r => {
       const g = GRADES.find(x => x.id === r.gradeId) || { name: '未选年级' };
-      const ge = GENRES.find(x => x.id === r.genreId) || GENRES[0];
+      const ge = genreById(r.genreId);
       return `<div class="hist-item" data-h="${r.id}">
         <div class="hist-thumb">${r.img ? `<img src="${r.img}" alt="">`
           : `<div style="height:100%;display:grid;place-items:center;color:#c9cdd8;font-size:15px">文</div>`}</div>
@@ -4107,7 +4529,7 @@
     if (card) card.classList.add('busy');
 
     $('#mTitle').textContent = 'AI 正在批改';
-    $('#mSub').textContent = '《那一刻，我长大了》· 演示';
+    $('#mSub').textContent = `《${DEMO_TITLE}》· 演示`;
     $('#mBody').innerHTML = `
       <div class="prog-main">
         <div class="big-ring" id="bigRing" style="--p:0%"><span id="bigPct">0%</span></div>
@@ -4126,8 +4548,8 @@
     const req = makeResult(d);
     d.result = req;             // 只挂结果给右栏用
     d.status = 'showcase';      // 画板状态不变：仍是展示态（四色批注照旧）
-    if (!d.name || d.name === '未命名') d.name = '那一刻，我长大了';
-    d.gradeId = d.gradeId || 'g6';
+    if (!d.name || d.name === '未命名') d.name = DEMO_TITLE;
+    d.gradeId = d.gradeId || 'g5';
     d.demoOnly = true;          // 演示批改：不写入历史记录
     $('#progTx').textContent = '批改完成';
     await wait(240);

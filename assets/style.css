@@ -1,4 +1,4 @@
-/* ===== 智批作文 · 全局样式 ===== */
+/* ===== 紫微星 · 全局样式 ===== */
 *,*::before,*::after{box-sizing:border-box}
 :root{
   --ink:#1a1b1f; --ink-2:#4a4d57; --ink-3:#868b97; --ink-4:#b4b9c4;
@@ -44,14 +44,13 @@ input,select,textarea{font-family:inherit;color:inherit}
 /* ===== 左侧功能栏 240px ===== */
 .side{width:240px;flex:0 0 240px;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 .side-head{padding:18px 16px 10px;display:flex;align-items:center;gap:10px}
-.logo{width:34px;height:34px;border-radius:11px;flex:0 0 34px;
-  background:linear-gradient(135deg,#6366f1,#a855f7 55%,#f472b6);
-  display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px;
-  box-shadow:0 4px 12px rgba(99,102,241,.35);position:relative;letter-spacing:-.5px}
-.logo::after{content:"";position:absolute;inset:1px;border-radius:10px;
-  background:linear-gradient(180deg,rgba(255,255,255,.35),transparent 45%);}
+/* 左上角品牌图标：直接使用软件桌面图标（build/icon.png 同源），
+ * 不再用渐变底 + 文字自绘，保证与安装后的软件图标完全一致 */
+.logo{width:34px;height:34px;flex:0 0 34px;position:relative}
+.logo img{width:100%;height:100%;display:block;object-fit:contain;
+  filter:drop-shadow(0 3px 8px rgba(20,23,45,.18))}
 .brand{font-size:15px;font-weight:700;letter-spacing:.3px;line-height:1.2}
-.brand small{display:block;font-size:8.5px;font-weight:500;color:#a8adba;letter-spacing:.9px;margin-top:3px;white-space:nowrap}
+.brand small{display:block;font-size:9px;font-weight:500;color:#a8adba;letter-spacing:.5px;margin-top:3px;white-space:nowrap}
 .side-scroll{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;padding:6px 12px 18px;min-height:0;
   display:flex;flex-direction:column}
 .side-scroll > .field{flex:0 0 auto}
@@ -84,6 +83,22 @@ textarea.input{height:auto;padding:8px 10px;resize:none;line-height:1.65;min-hei
 /* 体裁 chips */
 .chips{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-bottom:2px}
 .chips .chip{width:100%;text-align:center;justify-content:center}
+/* 体裁悬停提示：暖纸白卡片（对齐参考版式）——标题 + 圆点要点 + 适用题型 */
+.genre-tip{position:fixed;z-index:120;width:288px;padding:12px 14px 11px;border-radius:10px;
+  background:#fffdf9;border:1px solid #ece7db;color:#2b2e33;pointer-events:none;
+  opacity:0;transform:translateY(4px);transition:opacity .16s,transform .16s;
+  box-shadow:0 10px 30px rgba(40,36,24,.14),0 2px 8px rgba(40,36,24,.08)}
+.genre-tip.on{opacity:1;transform:none}
+.genre-tip .gt-h{font-size:12px;font-weight:800;color:#1c1f24;letter-spacing:.3px;
+  padding-bottom:7px;margin-bottom:7px;border-bottom:1px solid #f0ece2}
+.genre-tip .gt-list{margin:0;padding:0;list-style:none}
+.genre-tip .gt-list li{position:relative;padding-left:12px;font-size:11px;line-height:1.62;
+  color:#6c706c;margin-bottom:5px}
+.genre-tip .gt-list li:last-child{margin-bottom:0}
+.genre-tip .gt-list li::before{content:"";position:absolute;left:1px;top:7px;
+  width:4px;height:4px;border-radius:50%;background:#c9a05c}
+.genre-tip .gt-types{margin-top:8px;padding-top:7px;border-top:1px dashed #ece7db;
+  font-size:10px;line-height:1.6;color:#988c78}
 .chip{padding:6px 2px;border-radius:8px;font-size:10.5px;line-height:1.25;box-sizing:border-box;max-width:100%;border:1px solid var(--line-2);
   background:#fbfcfe;color:var(--ink-2);transition:.16s;white-space:nowrap}
 .chip:hover{border-color:#c7c9f5;color:var(--brand);background:#f7f7ff}
@@ -523,13 +538,10 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 }
 /* 窄屏 */
 @media (max-width:1400px){
-  .margin-col{width:190px;flex-basis:190px}
   .paper{width:520px;flex-basis:520px;padding:48px 42px 56px}
-  .anno .tx{font-size:10.3px}
 }
 @media (max-width:1200px){
   .report{width:330px;flex-basis:330px}
-  .margin-col{width:160px;flex-basis:160px}
   .paper{width:460px;flex-basis:460px;padding:40px 34px}
   .paper-body{font-size:13.5px}
 }
@@ -911,13 +923,10 @@ input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;transform:scale(1
 .ready-card h4{margin:0 0 6px;font-size:14px;font-weight:700;color:var(--ink)}
 .ready-card p{margin:0;font-size:11px;line-height:1.75;color:#9aa0ad}
 
-/* 批注卡：窄列时压缩内边距与字号，避免拉得过高 */
-.anno{padding:7px 9px 8px}
-.anno .tx{font-size:10.2px;line-height:1.6}
-.anno .lb{font-size:8.5px;padding:1px 5px;margin-bottom:4px}
-@media (max-width:1450px){
-  .anno .tx{font-size:9.8px;line-height:1.58}
-}
+/* 批注卡：字号加大保证可读；列宽由 JS 按内容自适应加宽 */
+.anno{padding:8px 10px 9px}
+.anno .tx{font-size:12px;line-height:1.62}
+.anno .lb{font-size:10.5px;padding:2px 6px;margin-bottom:5px}
 
 /* 顶部标签：横向滚动 + 历史标记 */
 .file-tabs{overflow-x:auto!important;overflow-y:hidden;
@@ -1386,22 +1395,44 @@ canvas-wrap img{-webkit-user-drag:none}
   background:#f2f4f9;border-radius:4px;padding:1px 3px;line-height:1.4}
 .dr-demo{background:#f7f6ff;border-radius:7px;padding:6px 8px 6px 22px;color:#5d5a80}
 
-/* 润色后文章 */
-.polish-paper{background:#fdfcf8;border:1px solid #f0eee6;border-radius:9px;
-  padding:14px 14px 12px;margin-top:2px}
-.pp-title{text-align:center;font-family:var(--serif);font-size:13.5px;font-weight:700;
-  color:#2a2c35;letter-spacing:1px;margin-bottom:10px}
-.polish-paper p{font-family:var(--serif);font-size:11.6px;line-height:2.05;color:#33363f;
-  text-indent:2em;margin:0 0 2px;text-align:justify}
-/* 润色稿正文高亮：逐句着色，不同手法不同颜色。
- * 参考图的效果是「一句一色、其余保持黑色」，所以这里底色更实、
- * 文字用同色系深色，既醒目又不至于像荧光笔那样糊成一片。 */
+/* 润色后文章：白纸 + 居中宋体标题 + 四类手法彩色片段（与参考版式一致） */
+.polish-paper{background:#fff;border:1px solid #ecebe4;border-radius:10px;
+  padding:14px 15px;margin-top:2px;box-shadow:0 1px 4px rgba(20,23,45,.04)}
+.pp-title{text-align:center;font-family:var(--serif);font-size:13px;font-weight:700;
+  color:#20232a;letter-spacing:.06em;margin-bottom:10px}
+.polish-paper p{font-family:var(--serif);font-size:11.5px;line-height:2;color:#2f3238;
+  text-indent:2em;margin:0 0 7px;text-align:justify}
+.polish-paper p:last-child{margin-bottom:0}
+/* 四类手法彩色片段：底色 = 手法色 12%，文字 = 手法色，其余正文保持黑 */
+.polish-paper .tech-span{color:var(--c);font-weight:600;border-radius:2px;padding:0 1px;
+  background:color-mix(in srgb,var(--c) 12%,transparent);
+  box-decoration-break:clone;-webkit-box-decoration-break:clone}
+/* 字数区间提示：居中一行小字 */
+.range-note{font-size:9px;color:#b3a996;margin-top:8px;text-align:center;letter-spacing:.02em}
+.range-note.warn{color:#b0552c}
+/* 本次使用的润色手法：标题行（左标题 + 虚线 + 右侧条数说明） */
+.tech-blk{margin-top:14px}
+.tech-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.tech-head h4{margin:0;font-size:12px;font-weight:800;color:#2b3038;letter-spacing:.02em;white-space:nowrap}
+.tech-head i{flex:1;height:0;border-top:1px dashed #dcd8ca}
+.tech-head .tech-meta{font-size:10px;color:#9aa1ad;white-space:nowrap}
+.tech-list{margin:0;padding:0;list-style:none}
+.tech-list li{position:relative;padding-left:12px;font-size:11.2px;line-height:1.78;color:#5d6470;
+  text-align:justify;margin-bottom:6px}
+.tech-list li:last-child{margin-bottom:0}
+.tech-list li::before{content:"";position:absolute;left:1px;top:7px;width:4px;height:4px;border-radius:50%;
+  background:var(--c,#c9a05c);box-shadow:0 0 0 2px #fbf7ec}
+.tech-list .tech-key{display:inline-block;font-size:10px;font-weight:600;color:var(--c);
+  background:color-mix(in srgb,var(--c) 10%,#fff);border:1px solid color-mix(in srgb,var(--c) 26%,#e8e2d4);
+  border-radius:4px;padding:0 4px;margin-right:4px;letter-spacing:.02em;vertical-align:1px}
+.tech-list li span{color:#5d6470}
+/* 真实稿回落：旧 mark 高亮，配色对齐四类手法（m3 紫 / m2 蓝 / m1 橙 / m4 绿） */
 .polish-paper mark.ph{color:inherit;padding:0 2px;border-radius:3px;
   box-decoration-break:clone;-webkit-box-decoration-break:clone}
-.polish-paper mark.ph-rhetoric{color:#6d33b0;background:#f2e4fd}
-.polish-paper mark.ph-sense{color:#15724a;background:#dcf3e6}
-.polish-paper mark.ph-action{color:#9a5f08;background:#fdedd2}
-.polish-paper mark.ph-theme{color:#1a5489;background:#dfecfb}
+.polish-paper mark.ph-rhetoric{color:#7a4fa8;background:rgba(139,110,192,.16)}
+.polish-paper mark.ph-sense{color:#1f6f8b;background:rgba(76,158,182,.16)}
+.polish-paper mark.ph-action{color:#b3541e;background:rgba(214,138,74,.18)}
+.polish-paper mark.ph-theme{color:#2f7d5c;background:rgba(72,150,116,.16)}
 .polish-paper mark.ph-detail{color:#4a5262;background:#eceef5}
 /* 说明卡片：处数徽标 */
 .pn-cnt{margin-left:auto;font-size:9px;font-weight:700;color:#8b90a0;
@@ -1412,10 +1443,11 @@ canvas-wrap img{-webkit-user-drag:none}
 .tabpane > .card{padding:12px 13px!important}
 .review{font-size:11.5px!important;line-height:1.95!important}
 
-/* 批注卡：多批注时压缩，避免被裁 */
-.anno{padding:6px 9px 7px!important}
-.anno .tx{font-size:9.8px!important;line-height:1.55!important}
-.anno .lb{font-size:8.2px!important;padding:1px 5px!important;margin-bottom:3px!important}
+/* 批注卡：字号加大保证可读（此处 !important 是历史压缩规则的最终生效位，
+   同步更新为放大后的值；卡片高度由 layoutAnnos 动态排布，不会互相压叠） */
+.anno{padding:8px 10px 9px!important}
+.anno .tx{font-size:12px!important;line-height:1.62!important}
+.anno .lb{font-size:10.5px!important;padding:2px 6px!important;margin-bottom:5px!important}
 .margin-col{overflow:visible!important}
 
 /* ===== 一键批改上方的实时进度 / 耗时卡片 ===== */
@@ -1553,20 +1585,33 @@ canvas-wrap img{-webkit-user-drag:none}
 .pn-ex{margin-top:5px;padding:5px 8px;background:#f8fafd;border-radius:5px;
   font-size:9.8px;line-height:1.65;color:#7c8497}
 
-/* 具体问题与修改思路卡片 */
-.pn-fix{background:linear-gradient(180deg,#f4fbf7,#fbfefc);border:1px solid #dff0e6;
-  border-left:3px solid #35a06a;border-radius:9px;padding:9px 11px;margin-bottom:8px}
+/* 具体问题与修改思路卡片：中性纸白底 + 分区小标题，各部分用不同颜色区分 */
+.pn-fix{background:#fff;border:1px solid #e7e9f2;border-left:3px solid #5b5ce2;
+  border-radius:9px;padding:10px 12px;margin-bottom:9px;box-shadow:0 1px 4px rgba(20,23,45,.04)}
 .pn-fix:last-child{margin-bottom:0}
-.pn-fix-h{font-size:10.9px;font-weight:800;color:#1f3b2e;line-height:1.65;margin-bottom:4px}
-.pn-fix-h .pf-n{color:#2f8f60;margin-right:2px}
-.pn-fix-d{font-size:10.2px;line-height:1.7;color:#5b666f;margin-bottom:6px}
-.pn-fix-steps{border-top:1px dashed #dcece3;padding-top:6px}
-.pn-step{display:flex;gap:5px;font-size:10.1px;line-height:1.68;color:#4d5a54;
-  margin-bottom:3px;align-items:flex-start}
+.pn-fix-h{font-size:11.5px;font-weight:800;color:#23263a;line-height:1.6;margin-bottom:7px;
+  display:flex;align-items:baseline;gap:6px}
+.pn-fix-h .pf-n{flex:0 0 16px;height:16px;border-radius:5px;background:#5b5ce2;color:#fff;
+  font-size:9.5px;font-weight:800;line-height:16px;text-align:center;align-self:center}
+/* 分区小标题：问题在哪（琥珀）/ 怎么做（靛蓝）/ 改后例句（青绿），颜色互不相同 */
+.pn-fix-sec{margin-bottom:7px}
+.pn-fix-sec:last-child{margin-bottom:0}
+.pf-lb{display:inline-flex;align-items:center;font-size:9px;font-weight:800;letter-spacing:.6px;
+  padding:1.5px 7px;border-radius:4px;margin-bottom:4px}
+.pf-lb.lb-issue{color:#b06a10;background:#fdf3e2}
+.pf-lb.lb-how{color:#4a4bd8;background:#eeeefc}
+.pf-lb.lb-demo{color:#0e7f86;background:#e4f5f6}
+.pn-fix-d{font-size:10.4px;line-height:1.7;color:#8a6a3a}
+.pn-fix-steps{padding-top:1px}
+.pn-step{display:flex;gap:6px;font-size:10.3px;line-height:1.68;color:#41466b;
+  margin-bottom:4px;align-items:flex-start}
 .pn-step:last-child{margin-bottom:0}
-.pn-step .ps-n{flex:0 0 13px;height:13px;border-radius:50%;background:#e3f2ea;color:#2f8f60;
+.pn-step .ps-n{flex:0 0 13px;height:13px;border-radius:50%;background:#e4e4fa;color:#4a4bd8;
   font-size:8.5px;font-weight:700;line-height:13px;text-align:center;margin-top:2px}
 .pn-step span:last-child{flex:1;min-width:0;word-break:break-word}
+/* 改后例句：青绿底整句展示，不带标签 */
+.pf-fix{font-size:10.2px;line-height:1.66;padding:6px 9px;border-radius:6px;
+  background:#e9f7f4;color:#0d6e66;font-weight:600;word-break:break-word}
 
 /* 本次润色说明 */
 .pn-notes{display:flex;flex-direction:column;gap:7px}
@@ -1668,3 +1713,34 @@ html{background:#f5f6fa}
 body{background:#f5f6fa}
 /* 启动闪屏等全屏覆盖层跟随圆角，不让直角溢出窗角 */
 #zp-splash{border-radius:8px;overflow:hidden}
+
+/* ===== 响应式适配：窄窗 / 竖屏 =====
+ * 三栏（功能栏 240 + 白板 + 报告 360）在窄窗口下改为纵向堆叠，
+ * 每个板块独立成区、内部滚动，竖屏也能把每个板块看清楚。
+ * 断点按「三栏最低可用宽度」推算：240+360+白板最小 420+间距 ≈ 1060。 */
+@media (max-width:1060px){
+  html,body{height:auto;min-height:100%}
+  body{overflow-y:auto}
+  .app{height:auto;min-height:100vh;flex-direction:column;gap:12px;padding:12px}
+  /* 功能栏：整宽置顶，内容不再锁高，随页面展开 */
+  .side{width:100%;flex:0 0 auto;overflow:visible}
+  .side-scroll{overflow:visible;max-height:none}
+  /* 白板：整宽，给足最小高度，内部仍可缩放/滚动 */
+  .stage{width:100%;flex:0 0 auto;min-height:70vh;overflow:visible}
+  .canvas-wrap{min-height:56vh}
+  /* 报告：整宽置底，随页面滚动 */
+  .report{width:100%;flex:0 0 auto;overflow:visible}
+  .report-scroll{overflow:visible;max-height:none}
+  /* 顶部标签行允许换行，避免窄窗被裁 */
+  .stage-bar{height:auto!important;flex-basis:auto!important;min-height:48px;flex-wrap:wrap!important;overflow:visible!important;padding:6px 12px!important}
+}
+/* 中等宽度：先收窄两侧，再进入堆叠，过渡更平滑 */
+@media (min-width:1061px) and (max-width:1240px){
+  .side{width:212px;flex-basis:212px}
+  .report{width:316px;flex-basis:316px}
+}
+/* 竖屏且不高（如平板竖持）：白板高度按视口比例给，避免一屏全是白板 */
+@media (max-width:1060px) and (max-height:800px){
+  .stage{min-height:62vh}
+  .canvas-wrap{min-height:48vh}
+}

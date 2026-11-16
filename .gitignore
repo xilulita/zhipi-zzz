@@ -56,3 +56,10 @@ assets/*.artifact.json
 assets/_side_font_bump.css
 assets/export_print.css
 assets/vendor/
+
+# 图标设计过程稿与备份（定稿已落地 build/icon.png / icon.ico，过程稿不进仓库）
+build/icon-draft-*
+build/icon-new-*
+build/icon-final-*
+build/icon-backup-*
+build/icon-preview.html

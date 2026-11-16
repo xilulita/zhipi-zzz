@@ -29,10 +29,10 @@
   transition:box-shadow .2s,transform .2s,border-color .2s;cursor:default;
   display:flex;flex-direction:column;min-height:0}
 .anno:hover,.anno.lit{border-color:#d8d5f8;box-shadow:0 4px 18px rgba(99,102,241,.18);transform:translateY(-1px)}
-.anno .lb{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;
-  padding:1.5px 6px;border-radius:5px;margin-bottom:5px;letter-spacing:.2px}
+.anno .lb{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;
+  padding:2px 7px;border-radius:5px;margin-bottom:5px;letter-spacing:.2px}
 .anno .lb::before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}
-.anno .tx{font-size:10.2px;line-height:1.58;color:#4a4d57;word-break:break-word;
+.anno .tx{font-size:12px;line-height:1.62;color:#4a4d57;word-break:break-word;
   }
 .anno .tx b{display:inline}
 .anno .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -109,8 +109,28 @@ body.mk-dragging .ink-mark{transition:none}
   backdrop-filter:blur(6px);animation:pulse 1.8s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
 
-@media (max-width:1500px){ .anno .tx{font-size:10.2px} }
-@media (max-width:1340px){ .anno .tx{font-size:9.9px;line-height:1.62} }
+/* 界面批注字号：不再随窗口变窄而缩小（窄列由加宽列宽解决），
+   保证任何窗口尺寸下批注都清晰可读；导出字号在 export.js 单独定义，不受影响 */
+/* ==== 堆叠模式（竖屏 / 窄窗 <700px 画板）====
+   作文纸独占整行，批注卡移到纸下方按左右两列卡片流排列：
+   不绝对定位、不画引线，每张卡完整可读，纵向滚动查看。 */
+.sheet-wrap.stack-mode{flex-wrap:wrap;row-gap:12px}
+.sheet-wrap.stack-mode .shot-col{order:0;flex:1 1 100%;width:100%!important;flex-basis:100%!important;
+  display:flex;justify-content:center}
+.sheet-wrap.stack-mode .anno-anchor{width:100%}
+.sheet-wrap.stack-mode .shot-img{width:100%}
+.sheet-wrap.stack-mode .anno-lines{display:none}
+.sheet-wrap.stack-mode .margin-col{order:1;flex:1 1 calc(50% - 6px);width:auto!important;flex-basis:calc(50% - 6px)!important;
+  display:flex;flex-direction:column;gap:10px;overflow:visible;margin:0}
+.sheet-wrap.stack-mode .margin-col.left{margin-right:6px}
+.sheet-wrap.stack-mode .margin-col.right{margin-left:6px}
+.sheet-wrap.stack-mode .anno-row{display:block!important}
+.sheet-wrap.stack-mode .anno{position:static;width:auto}
+/* 极窄（手机竖屏）：批注单列全宽 */
+@media (max-width:480px){
+  .sheet-wrap.stack-mode .margin-col{flex:1 1 100%;width:100%!important;flex-basis:100%!important;margin:0}
+}
+
 @media print{
   .canvas-wrap{padding:0;background:#fff}
   .ink-mark,.anno{-webkit-print-color-adjust:exact;print-color-adjust:exact}

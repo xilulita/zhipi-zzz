@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>智批作文 · AI 作文智能批改</title>
+<title>紫微星 · 文运曲星，照见每一稿</title>
 <link rel="stylesheet" href="assets/style.css?v=1793661302">
 <link rel="stylesheet" href="assets/board.css?v=1793644705">
 <link rel="stylesheet" href="assets/drill.css?v=1793644705">
@@ -21,7 +21,7 @@
 #zp-splash:after{width:420px;height:420px;left:-190px;bottom:-215px;background:rgba(28,20,96,.24)}
 .zps-main{position:relative;z-index:1;display:flex;align-items:center;gap:34px;transform:translateY(-10px);
   animation:zpsIn .62s cubic-bezier(.22,.9,.3,1) both}
-.zps-icon{width:118px;height:118px;border-radius:30px;box-shadow:0 18px 44px rgba(26,18,88,.36),inset 0 0 0 1px rgba(255,255,255,.24)}
+.zps-icon{width:118px;height:118px;filter:drop-shadow(0 18px 34px rgba(26,18,88,.42))}
 .zps-h1{margin:0 0 10px;font-size:38px;font-weight:800;letter-spacing:5px;text-shadow:0 5px 20px rgba(26,18,88,.30)}
 .zps-p{margin:0;font-size:14px;letter-spacing:5.5px;color:rgba(255,255,255,.86)}
 .zps-status{position:absolute;left:0;right:0;bottom:52px;z-index:1;text-align:center;font-size:12px;
@@ -33,7 +33,7 @@
 @keyframes zpsIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(-10px) scale(1)}}
 @media (max-width:640px){
   .zps-main{flex-direction:column;gap:16px;text-align:center}
-  .zps-icon{width:86px;height:86px;border-radius:22px}
+  .zps-icon{width:86px;height:86px}
   .zps-h1{font-size:27px;letter-spacing:3px}
   .zps-p{font-size:11.5px;letter-spacing:3px}
   .zps-status{bottom:34px}
@@ -43,12 +43,12 @@
 </head>
 <body>
 <script>window.__zpBootAt=Date.now();</script>
-<div id="zp-splash" role="status" aria-label="智批作文正在启动">
+<div id="zp-splash" role="status" aria-label="紫微星正在启动">
   <div class="zps-main">
     <img class="zps-icon" src="assets/app-icon.png" alt="">
     <div>
-      <h1 class="zps-h1">智批作文</h1>
-      <p class="zps-p">让每一次修改都有方向</p>
+      <h1 class="zps-h1">紫微星</h1>
+      <p class="zps-p">文运曲星，照见每一稿</p>
     </div>
   </div>
   <div class="zps-status">正在准备批改工作台<div class="zps-bar"><i></i></div></div>
@@ -59,8 +59,8 @@
   <!-- ================= 左侧功能栏 240px ================= -->
   <aside class="side panel">
     <div class="side-head">
-      <div class="logo">智</div>
-      <div class="brand">智批作文<small>AI ESSAY GRADER</small></div>
+      <div class="logo"><img src="assets/logo-icon.png" alt="紫微星"></div>
+      <div class="brand">紫微星<small>文运曲星，照见每一稿</small></div>
       <button class="bell" id="btnBell" title="消息提醒" aria-label="消息提醒">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
           stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
@@ -256,9 +256,13 @@
       <div class="r1">
         <h2>批改报告 <span class="badge" id="aiBadge">AI 已就绪</span></h2>
         <div class="export-group">
-          <button class="tool ex" id="btnExportHTML" title="一键导出批改报告">
+          <button class="tool ex" id="btnExportHTML" title="导出 HTML 报告：选择保存位置后生成">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             <span>HTML</span>
+          </button>
+          <button class="tool ex" id="btnExportPDF" title="导出 PDF：选择保存位置后自动生成">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+            <span>PDF</span>
           </button>
         </div>
       </div>

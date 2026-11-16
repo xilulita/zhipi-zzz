@@ -1,4 +1,4 @@
-/* ===== 智批作文 · AI 批改接口层 =====
+/* ===== 紫微星 · AI 批改接口层 =====
  * 支持 OpenAI 兼容接口（云端）与 Ollama 本地部署
  * 未配置时抛出明确错误，绝不返回伪造结果
  */
@@ -19,7 +19,7 @@
   }
 
   /* ---------- 构造提示词 ---------- */
-  function buildPrompt(grade, genre, weights, gradeMeta) {
+  function buildPrompt(grade, genre, weights, gradeMeta, opts) {
     const dims = [
       `内容立意（权重${weights[0]}%）：主题是否明确、立意是否深刻、素材是否贴合题意`,
       `结构逻辑（权重${weights[1]}%）：段落安排是否合理、层次是否清晰、详略是否得当`,
@@ -39,8 +39,16 @@
         `宁可删减重复与赘述，也不要写成长篇。`
       : `润色稿篇幅与原文相当，不要明显加长。`;
 
-    return `你是一位资深的${grade}语文教师，正在批改一篇${genre}。请先逐字识别图片中的手写作文，再按以下四个维度评分并给出批注。
+    /* 体裁侧重：让批注口径贴合所选体裁，避免"选演讲稿却按记叙文批"的错位。
+     * 同时要求先核对文章实际体裁，不符时如实提醒而不是硬套。 */
+    const focus = (opts && opts.genreFocus) || '';
+    const gdesc = (opts && opts.genreDesc) || '';
+    const genreRule = focus
+      ? `\n体裁要求（重要）：\n- 本篇按「${genre}」批改。这类作文：${gdesc}\n- 批改侧重：${focus}。批注与总评要优先覆盖这些方面，该体裁的格式要求（如书信的称呼祝语署名、演讲的呼告号召）缺失时要明确指出。\n- 先核对文章实际内容是否属于该体裁：若明显不符（如选了议论文但全文是记事），不要硬套所选体裁的标准，按文章实际类型批改，并在总评开头用一句话提醒用户切换体裁。\n`
+      : '';
 
+    return `你是一位资深的${grade}语文教师，正在批改一篇${genre}。请先逐字识别图片中的手写作文，再按以下四个维度评分并给出批注。
+${genreRule}
 评分维度：
 ${dims}
 
@@ -300,7 +308,7 @@ ${dims}
       throw err;
     }
     const cfg = readCfg();
-    const prompt = buildPrompt(gradeMeta.name, genreName, weights || [30, 25, 25, 20], gradeMeta);
+    const prompt = buildPrompt(gradeMeta.name, genreName, weights || [30, 25, 25, 20], gradeMeta, opts);
     // 多页作文：一次提交全部页面，按上传顺序作为第 1、2…页
     const pageImgs = (Array.isArray(doc.pages) && doc.pages.length)
       ? doc.pages.map(p => p.img).filter(Boolean)
