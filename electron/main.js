@@ -82,7 +82,7 @@ function createMainWindow() {
     minWidth: 1200,
     minHeight: 760,
     show: false,
-    title: '紫微星',
+    title: '紫微星 · AI 批改工作台',
     // 窗口底色与页面一致：Windows 11 圆角外侧由系统合成，
     // 若底色偏深会在四角形成黑色三角/包边。
     backgroundColor: '#f5f6fa',

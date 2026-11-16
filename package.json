@@ -1,6 +1,6 @@
 {
-  "name": "zhipi-zuowen-desktop",
-  "version": "1.4.0",
+  "name": "ziweixing",
+  "version": "1.4.1",
   "description": "紫微星 · AI 作文批改桌面版",
   "private": true,
   "license": "MIT",
@@ -75,7 +75,9 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "uninstallDisplayName": "紫微星"
+      "uninstallDisplayName": "紫微星",
+      "include": "build/installer.nsh",
+      "unicode": true
     }
   }
 }
