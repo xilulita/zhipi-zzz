@@ -1,6 +1,6 @@
 {
   "name": "ziweixing",
-  "version": "1.4.1",
+  "version": "1.5.3",
   "description": "紫微星 · AI 作文批改桌面版",
   "private": true,
   "license": "MIT",
@@ -30,8 +30,8 @@
   },
   "build": {
     "appId": "com.zhipi.zuowen.desktop",
-    "productName": "紫微星",
-    "artifactName": "Ziweixing-Setup-${version}.${ext}",
+    "productName": "ziweixing",
+    "artifactName": "ziweixing-Setup-${version}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -48,6 +48,12 @@
       "!assets/*.part.js",
       "!assets/*.part.html",
       "!assets/vendor/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "app-brand.ico"
+      }
     ],
     "asar": true,
     "compression": "maximum",

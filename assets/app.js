@@ -67,10 +67,10 @@
   ];
   // 本次使用的润色手法：mark 与正文标记一一对应
   const DEMO_TECHNIQUES = [
-    { mark: 'm3', text: '运用比喻修辞，把闷热比作盖严的蒸笼、把攥扇的手比作没说完的话，让牵挂变成可看的画面' },
-    { mark: 'm1', text: '补充动作细节，手腕一顿一顿、汗顺着皱纹淌、指腹在毛边上停留，替代「她很辛苦」这类概括' },
-    { mark: 'm2', text: '补进听觉与嗅觉触觉，老歌混着风声、皂角味、落在背上的风，让夏夜写得可听可闻可感' },
-    { mark: 'm4', text: '把「爱一代一代传下来」这类议论改成实物落点，结尾回扣蒲扇与皂角味，首尾照应不喊口号' }
+    { mark: 'rhetoric', text: '运用比喻修辞，把闷热比作盖严的蒸笼、把攥扇的手比作没说完的话，让牵挂变成可看的画面' },
+    { mark: 'action', text: '补充动作细节，手腕一顿一顿、汗顺着皱纹淌、指腹在毛边上停留，替代「她很辛苦」这类概括' },
+    { mark: 'sense', text: '补进听觉与嗅觉触觉，老歌混着风声、皂角味、落在背上的风，让夏夜写得可听可闻可感' },
+    { mark: 'theme', text: '把「爱一代一代传下来」这类议论改成实物落点，结尾回扣蒲扇与皂角味，首尾照应不喊口号' }
   ];
   // 演示稿总评：精炼三段，点亮点、指短板、给方向，不逐条罗列
   const DEMO_REVIEW =
@@ -531,16 +531,66 @@
       w: 760, h: demoPageH(), rawSize: 0, size: 0,
       gradeId: state.gradeId || null, genreId: state.genreId || 'narr', note: '',
       weights: state.weights.slice(),
-      status: 'showcase',     // 默认展示稿：带四色批注，但仅展示不可操作
+      status: 'showcase',     // 默认展示稿：干净卷面，点「演示批改」后才出现四色批注
       result: null, essay: null,
-      demoAnnos: makeDemoAnnos(),
+      demoAnnos: [],          // 批注在演示批改时再挂上，默认界面不展示
       isDemo: true
     };
   }
 
+  /* 最近一次删除的快照，供「撤销」使用。只留一份，够用且不占内存 */
+  let _lastDeleted = null;
+
+  /* 带「撤销」的提示：删除立即可恢复，作为误删的最后一道保险 */
+  let _undoTimer = null;
+  function toastUndo(msg) {
+    const el = $('#toast');
+    if (!el) return;
+    if (_undoTimer) { clearTimeout(_undoTimer); _undoTimer = null; }
+    el.innerHTML = `<span class="tu-tx">${esc(msg)}</span><button class="tu-btn" id="tuUndo">撤销</button>`;
+    el.classList.add('on', 'undo');
+    const btn = $('#tuUndo');
+    if (btn) btn.onclick = e => { e.stopPropagation(); undoDelete(); };
+    _undoTimer = setTimeout(() => {
+      el.classList.remove('on', 'undo');
+      _undoTimer = null;
+    }, 6000);          // 6 秒内可撤销
+  }
+
+  function undoDelete() {
+    const snap = _lastDeleted;
+    if (!snap) { toast('没有可撤销的删除'); return; }
+    _lastDeleted = null;
+    if (snap.kind === 'h') {
+      const list = loadHistory();
+      list.splice(Math.max(0, snap.index || 0), 0, snap.rec);
+      saveHistory(list);
+      /* 历史记录的排序是「按时间倒序」，恢复后要重新按 at 排序，
+       * 否则它会停在插进去的位置，与"最新的在最前"不一致。 */
+      const sorted = list.slice().sort((a, b) => (b.at || 0) - (a.at || 0));
+      saveHistory(sorted);
+      renderTabs();
+      if ($('#mask').classList.contains('on')) openHistory();
+    } else {
+      const at = Math.min(snap.index || 0, state.docs.length);
+      state.docs.splice(at, 0, snap.doc);
+      state.activeId = snap.doc.id;
+      /* 撤销恢复的是完整 doc 对象（含 result/annos/pages），
+       * 直接按它同步左侧并重绘，不需要重新批改。 */
+      syncLeftFromDoc();
+      renderTabs(); renderCanvas(); renderReport(); syncDemoUI();
+    }
+    const el = $('#toast');
+    if (el) el.classList.remove('on', 'undo');
+    toast('已恢复');
+  }
+
   function removeItem(kind, id) {
     if (kind === 'h') {
-      const list = loadHistory().filter(r => r.id !== id);
+      const all = loadHistory();
+      const rec = all.find(r => r.id === id);
+      const list = all.filter(r => r.id !== id);
+      if (rec) _lastDeleted = { kind: 'h', rec, index: all.indexOf(rec) };
       saveHistory(list);
       state.docs = state.docs.filter(d => d.histId !== id);
       if (!state.docs.some(d => d.id === state.activeId)) {
@@ -548,7 +598,7 @@
       }
       renderTabs(); renderCanvas(); renderReport(); syncDemoUI();
       if ($('#mask').classList.contains('on')) openHistory();
-      toast('已删除该历史记录');
+      toastUndo('已删除「' + String((rec && rec.name) || '该记录').slice(0, 14) + '」');
       return;
     }
     const idx = state.docs.findIndex(d => d.id === id);
@@ -559,6 +609,15 @@
       return;
     }
     const [removed] = state.docs.splice(idx, 1);
+    /* 若这一份还在批改，必须中止请求：
+     * 否则请求跑完后仍会写回历史（pushHistory / registerDraft），
+     * 用户会看到"已经删掉的作文"以历史记录的形式重新冒出来。 */
+    if (removed) {
+      removed.cancelled = true;
+      if (removed.ctrl) { try { removed.ctrl.abort(); } catch (e) {} removed.ctrl = null; }
+      removed.grading = false;
+    }
+    if (removed) _lastDeleted = { kind: 'doc', doc: removed, index: idx };
     // 关键：同一篇稿在历史里有对应记录时一并删除，
     // 否则它会以"历史"标签的形式重新出现，导致要删两次。
     if (removed && removed.histId) {
@@ -568,10 +627,13 @@
     if (state.activeId === id) {
       const next = state.docs[idx] || state.docs[idx - 1] || state.docs[0];
       state.activeId = next ? next.id : null;
-      if (next) syncLeftFromDoc();
     }
+    /* 不管删的是不是当前稿，左侧面板都按"当前稿"重新同步一次：
+     * 删除后当前稿可能已经换了，年级/体裁/姓名/权重都要跟着变，
+     * 否则会出现「右侧是 A，左侧还显示 B 的年级」的错位。 */
+    syncLeftFromDoc();
     renderTabs(); renderCanvas(); renderReport(); syncDemoUI();
-    toast(`已删除「${(removed && (removed.note || removed.name)) || '未命名'}」`);
+    toastUndo(`已删除「${String((removed && (removed.note || removed.name)) || '未命名').slice(0, 14)}」`);
   }
 
   function renderTabs() {
@@ -630,8 +692,11 @@
         const direct = ev.target && ev.target.closest ? ev.target.closest('.tab-x') : null;
         // 只有在标签栏内的叉号才算，避免误伤别处的 .tab-x
         if (direct && t2.contains(direct)) return direct;
-        // 2) 兜底：按坐标找标签栏内的叉号（热区四周各放宽 6px）
-        const pad = 6;
+        /* 2) 兜底：按坐标找标签栏内的叉号。
+         * 原来四周各放宽 6px，等于把叉号的"可点区域"扩大了近一倍，
+         * 相邻标签、标签正文边缘都成了删除区——这是误删的直接原因。
+         * 现在不放宽，只认叉号自身的矩形。 */
+        const pad = 0;
         const tabs = Array.from(t2.querySelectorAll('.ftab'));
         for (const tab of tabs) {
           const x = tab.querySelector('.tab-x');
@@ -646,42 +711,64 @@
         return null;
       };
 
-      const doDelete = (x, ev) => {
+      /* 删除：先弹确认框，确认后才真正删除。
+       * 原来的实现是 pointerdown 就直接删——鼠标一按下即生效，
+       * 连"点错但没松手"的后悔机会都没有，这是误删的主要原因。 */
+      const kind0 = k => k.slice(0, k.indexOf(':'));
+
+      const askDelete = async (x, ev) => {
         if (!x) return;
+        /* 在捕获阶段拦下，事件不会传到标签本身，
+         * 所以不会再"顺带把这篇切成当前稿"。 */
         ev.stopPropagation();
         ev.preventDefault();
-        // 标记本次交互已被删除逻辑消费，避免随后的 click 又切换标签
-        const t2 = document.querySelector('#fileTabs');
-        if (t2) {
-          t2.dataset.delFired = '1';
-          setTimeout(() => { delete t2.dataset.delFired; }, 80);
-        }
         if (x.classList.contains('lock')) {
           toast('需保留一份，无法删除最后一份');
           return;
         }
         const key = x.dataset.del || '';
+        /* 兜底：正在批改中的稿先提示"需先停止"，避免删了却留个在跑的请求，
+         * 也避免弹出一个"确认了也删不掉"的空确认框。 */
+        if (kind0(key) === 'doc') {
+          const dd = state.docs.find(v => v.id === key.slice(2));
+          if (dd && dd.grading) { toast('这一份正在批改，请先停止再删除'); return; }
+          if (state.docs.length <= 1) { toast('需保留一份，无法删除最后一份'); return; }
+        }
         if (!key) return;
         const ci = key.indexOf(':');
         if (ci < 0) return;
-        removeItem(key.slice(0, ci), key.slice(ci + 1));
+        const kind = key.slice(0, ci), id = key.slice(ci + 1);
+
+        // 找出这份作文的名字与批改状态，写进确认框，让人看清楚删的是哪一篇
+        let name = '这份作文', graded = false;
+        if (kind === 'doc') {
+          const d = state.docs.find(v => v.id === id);
+          if (d) { name = d.note || d.name || '未命名'; graded = !!d.result || d.status === 'done'; }
+        } else {
+          const rec = loadHistory().find(v => v.id === id);
+          if (rec) { name = rec.name || '未命名'; graded = true; }
+        }
+        const ok = await askConfirm({
+          title: '确认删除这份作文？',
+          body: `「<b>${esc(String(name).slice(0, 20))}</b>」${graded ? '已经批改完成，删除后<b>批注与评分都会一起删掉</b>。' : '删除后需要重新上传。'}`,
+          tip: '删除后 6 秒内可以点提示里的「撤销」找回。',
+          okText: '确认删除',
+          cancelText: '保留'
+        });
+        if (!ok) return;
+        removeItem(kind, id);
       };
 
-      // 用 pointerdown：比 click 更早，且不会被上层元素的 click 处理抢先
-      document.addEventListener('pointerdown', ev => {
+      // 用 click 触发（松手后才算），不再是 pointerdown 按下即删
+      document.addEventListener('click', ev => {
         const x = hitTabX(ev);
-        if (x) doDelete(x, ev);
+        if (x) askDelete(x, ev);
       }, true);
 
-      // keyboard / 无障碍：保留 click 兜底（detail===0 表示键盘触发）
-      document.addEventListener('click', ev => {
-        if (ev.detail === 0) doDelete(hitTabX(ev), ev);
-      }, true);
+
     }
 
     $$('#fileTabs .ftab').forEach(b => b.onclick = () => {
-      // 刚刚点的是删除叉号，这次 click 不再切换标签
-      if (t.dataset.delFired) return;
       const id = b.dataset.id, kind = b.dataset.kind;
       if (kind === 'doc') {
         state.activeId = id;
@@ -1115,7 +1202,11 @@
         ${pageBarHTML(d)}
       </div>`;
     }
-    const srcAnnos = (d.result && d.result.annos) || d.demoAnnos || [];
+    /* 演示稿：批注一律取定制版（四色齐全，含"删改"），不受 AI 生成结果影响；
+     * 真实稿：用批改结果里的批注。 */
+    const srcAnnos = (d.isDemo && Array.isArray(d.demoAnnos) && d.demoAnnos.length)
+      ? d.demoAnnos
+      : ((d.result && d.result.annos) || d.demoAnnos || []);
     srcAnnos.forEach((a, i) => { if (!a.no) a.no = i + 1; });
     // 多页：只绘制当前页对应的批注；单页稿把所有批注归到第 1 页
     const totalPages = (d.pages && d.pages.length) || 1;
@@ -1128,29 +1219,28 @@
     const cw = host ? host.clientWidth : 900;
     const ch = $('#canvasWrap') ? $('#canvasWrap').clientHeight : 720;
     const avail = Math.max(300, Math.min(cw - 8, 1160));
-    // 宽幅图片时给批注列更多压缩，把宽度让给正文
-    const wideDoc = ((d.h || 1) / (d.w || 1)) < 0.8;
     // 批注列宽：字号加大后同步加宽，保证每行能容下 12~13 个字；
     // 窄窗口时适度回收，但不再低于 132px（竖屏另有堆叠布局兜底）
     // 堆叠阈值看「画板实际宽度」而非窗口宽度：三栏布局下画板 = 窗口 - 两侧栏，
     // 竖屏堆叠布局下画板 ≈ 整窗宽，两种形态都能正确判断
     const stack = cw < 560;   // 竖屏/窄画板：批注改为纸下方双列卡片流
-    const marginW = stack ? 0
-      : avail > 1120 ? 176
-      : avail > 980 ? 164
-      : avail > 820 ? 152
-      : wideDoc ? 136 : 144;
+    /* 批注列宽：与导出一致——纸张占可用宽约 62%，其余平分给两列，
+     * 白边只剩走线间隙；列宽有可读下限（能放下 12~13 字一行）。 */
+    const COL_MIN = 132;
+    const paperTargetW = Math.round(avail * 0.62);
+    const marginByRest = Math.floor((avail - paperTargetW) / 2) - 8;
+    const marginW = stack ? 0 : Math.max(COL_MIN, marginByRest);
     // 高度优先：扣掉介绍区与底部印章/图例后，剩余高度全部给作文纸
     const introH = (document.querySelector('.board-intro') || {}).offsetHeight || 72;
     const reserved = introH + 26 + 18;   // 介绍区 + 间距 + 印章余量
     const maxH = Math.max(300, ch - reserved);
     const ratio = (d.h || 1) / (d.w || 1);
-    const byWidth = avail - marginW * 2 - 14;
+    const byWidth = avail - marginW * 2 - 18;
     const byHeight = maxH / ratio;
     // 堆叠模式：纸张独占整行宽度（批注在下方），高度不再受视口挤压
     const paperW = stack
       ? Math.max(220, Math.min(avail - 8, 760))
-      : Math.max(180, Math.min(byWidth + (wideDoc ? 20 : 0), byHeight, 760));
+      : Math.max(200, Math.min(byWidth, byHeight, 760));
     /* 只画坐标真实有效的批注方格。
      * 以前对缺失坐标的批注兜底成同一个默认矩形，导致所有方格叠在纸面同一处，
      * 互相覆盖后只有一个能点到，其余既选不中也拖不动。
@@ -1191,7 +1281,9 @@
   /* ---------- 用 JS 精确摆放批注：卡片按原文纵向位置排列 ---------- */
   /* 当前页应显示的批注（多页稿按 page 过滤；单页稿全显示） */
   function pageAnnos(d) {
-    const list = (d && ((d.result && d.result.annos) || d.demoAnnos)) || [];
+    const list = (d && ((d.isDemo && d.demoAnnos && d.demoAnnos.length)
+      ? d.demoAnnos
+      : ((d.result && d.result.annos) || d.demoAnnos))) || [];
     const total = (d && d.pages && d.pages.length) || 1;
     if (total <= 1) return list;
     const cur = (d.page || 0) + 1;
@@ -1487,6 +1579,11 @@
 
   /* 取当前可编辑的批注数组；演示稿把副本提升为可写数组，保证编辑可保存 */
   function editableAnnos(d) {
+    // 与画板取批注同源：演示稿用定制版（含删改），真实稿用批改结果
+    if (d.isDemo && Array.isArray(d.demoAnnos) && d.demoAnnos.length) {
+      d.demoAnnos = d.demoAnnos.map((a, i) => ({ ...a, no: a.no || i + 1 }));
+      return d.demoAnnos;
+    }
     if (d.result && Array.isArray(d.result.annos)) return d.result.annos;
     if (Array.isArray(d.demoAnnos)) {
       d.demoAnnos = d.demoAnnos.map((a, i) => ({ ...a, no: a.no || i + 1 }));
@@ -2020,6 +2117,60 @@
   }
 
   /* 重复批改二次确认：返回 Promise<boolean> */
+  /* 通用二次确认：返回 Promise<boolean>
+   * 用于删除等不可逆操作，避免误点直接生效。
+   * opts: { title, body(html), tip, okText, cancelText } */
+  function askConfirm(opts) {
+    return new Promise(resolve => {
+      const mask = $('#cfMask');
+      const body = $('#cfBody');
+      const titleEl = $('#cfTitle');
+      const okBtn = $('#cfOk');
+      const cancelBtn = $('#cfCancel');
+      if (!mask || !body || !okBtn || !cancelBtn) { resolve(true); return; }
+
+      const o = opts || {};
+      if (titleEl) titleEl.textContent = o.title || '请确认';
+      body.innerHTML = o.body || '';
+      if (o.tip) {
+        const tip = document.createElement('div');
+        tip.className = 'cf-tip';
+        tip.textContent = o.tip;
+        body.appendChild(tip);
+      }
+      okBtn.textContent = o.okText || '确定';
+      cancelBtn.textContent = o.cancelText || '取消';
+
+      let settled = false;
+      const cleanup = () => {
+        mask.hidden = true;
+        okBtn.onclick = null;
+        cancelBtn.onclick = null;
+        mask.onclick = null;
+        document.removeEventListener('keydown', onKey, true);
+        // 还原默认文案，避免影响其他调用方
+        okBtn.textContent = '确定重新批改';
+        cancelBtn.textContent = '取消';
+      };
+      const finish = v => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(v);
+      };
+      const onKey = e => {
+        if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      };
+      okBtn.onclick = e => { e.stopPropagation(); finish(true); };
+      cancelBtn.onclick = e => { e.stopPropagation(); finish(false); };
+      mask.onclick = e => { if (e.target === mask) finish(false); };
+      document.addEventListener('keydown', onKey, true);
+      mask.hidden = false;
+      setTimeout(() => cancelBtn.focus(), 60);   // 默认焦点在"取消"，回车不会误删
+    });
+  }
+
   function askConfirmRerun(d) {
     return new Promise(resolve => {
       const mask = $('#cfMask');
@@ -2513,20 +2664,31 @@
     const issues = [];
     const longSent = P.find(t => /[^。！？]{45,}/.test(t));
     if (longSent) {
+      const turnIn = longSent.match(/(.{12,}?)(可|但是|可是|于是|却|因为|所以|只是|而且)(.{8,})/);
       issues.push({ dim: 'language', sev: 'mid', title: '有长句未断开，读起来偏喘',
         desc: `第 ${P.indexOf(longSent) + 1} 段有一句超过 45 字未断句，建议在转折处加逗号或句号。`,
+        quote: cut(longSent, 46),
+        fix: turnIn ? turnIn[1].replace(/[，,]$/, '') + '。' + turnIn[2] + turnIn[3] : cut(longSent, 46),
         ex: `原句：<s>${cut(longSent, 46)}…</s>` });
     }
     const vague = P.find(t => /(很|非常|特别)(感动|难过|开心|高兴|紧张)/.test(t));
     if (vague) {
+      const em = vague.match(/(很|非常|特别)(感动|难过|开心|高兴|紧张|害怕)/);
+      const bodyMap = { 感动: '鼻子一酸，眼眶忽然热了一下', 难过: '喉咙像塞了棉花', 开心: '嘴角压不住地往上翘',
+        高兴: '忍不住笑出声，又赶紧捂住嘴', 紧张: '手心全是汗，指尖发凉', 害怕: '后背沁出一层薄汗' };
       issues.push({ dim: 'content', sev: 'mid', title: '情绪用概括词表达，画面偏弱',
         desc: '文中用“很感动/很难过”这类词直接说结果，缺少身体反应或动作，感染力会被削弱。',
+        quote: cut(vague, 26),
+        fix: em ? vague.replace(em[0], bodyMap[em[2]] || '手心发凉') : cut(vague, 26),
         ex: `原句：<s>${cut(vague, 26)}…</s> 建议：<b>把它换成手在做什么、眼睛看见什么。</b>` });
     }
     const shortP = P.filter(t => t.length < 30).length;
     if (shortP >= 2) {
+      const sp = P.find(t => t.length < 30) || '';
       issues.push({ dim: 'structure', sev: 'low', title: '有短段偏碎，层次被切得太细',
         desc: `全篇有 ${shortP} 个不足 30 字的短段，会打断叙述节奏，可以考虑合并到相邻段。`,
+        quote: cut(sp, 26),
+        fix: cut(sp, 26),
         ex: `建议：<b>把相邻的两三句合成一段，让每段只承担一个意思。</b>` });
     }
     /* 内容类保底：按文本真实特征依次补，直到凑足 3 条 */
@@ -2550,11 +2712,15 @@
       const keyPara = P.reduce((a, b) => (b.length > (a || '').length ? b : a), '');
       issues.push({ dim: 'structure', sev: 'mid', title: '重点段可以再展开，详略不够分明',
         desc: `全文各段篇幅接近，最该细写的关键段（第 ${P.indexOf(keyPara) + 1} 段）没有明显放开，读者刚进入情境就过去了。`,
+        quote: cut(keyPara, 26),
+        fix: cut(keyPara, 26).replace(/[。！？]$/, '') + '，手腕一顿一顿的，额头的汗顺着皱纹往下淌。',
         ex: '建议：<b>把关键段扩成慢镜头：动作拆成三拍，补一处声音或触感，其余段落适当压缩。</b>' });
     }
     if (issues.length < 3) {
       issues.push({ dim: 'content', sev: 'low', title: '结尾收束偏快，余味不足',
         desc: '结尾把道理直接说了出来，缺少一个让读者自己回味的画面或实物落点。',
+        quote: cut(last, 26),
+        fix: cut(last, 26).replace(/我明白了|我懂得了|这就是|让我明白/g, '') || cut(last, 26),
         ex: '建议：<b>让开头出现过的物或景在结尾再出现一次，停在画面上，不解释。</b>' });
     }
     if (issues.length < 3) {
@@ -2609,10 +2775,6 @@
     return t;
   }
 
-  function pickN(arr, n) {
-    const a = arr.slice().sort(() => Math.random() - 0.5);
-    return a.slice(0, n);
-  }
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
   /* ================= 右侧报告 ================= */
@@ -2760,39 +2922,6 @@
       <h4>${t}</h4><p>${p}</p></div>`;
   }
 
-  /* ---------- 批改耗时卡片 ---------- */
-  function timingCard(R) {
-    const t = R && R.timing;
-    if (!t) return '';
-    const ms = v => (Number.isFinite(+v) ? Math.max(0, +v) : 0);
-    const total = ms(t.total) || 1;
-    const palette = ['#5b5ce2', '#8b6cf1', '#22a06b', '#d97706'];
-    // 兼容新旧两种结构：stages 优先，旧字段兜底
-    const stages = Array.isArray(t.stages) && t.stages.length
-      ? t.stages.map((s, i) => ({ k: s.k || '阶段', v: ms(s.ms), c: palette[i % palette.length] }))
-      : [
-          { k: '读取与准备', v: ms(t.prep), c: palette[0] },
-          { k: '模型识别与评分', v: ms(t.model), c: palette[1] },
-          { k: '生成报告与渲染', v: ms(t.render), c: palette[2] }
-        ];
-    const sec = v => (ms(v) / 1000).toFixed(v < 10000 ? 1 : 0);
-    return `<div class="card time-card">
-      <div class="card-h"><span class="ic" style="background:#eef0ff;color:#5b5ce2">⏱</span>批改耗时
-        <span class="cnt">共 ${sec(total)} 秒</span></div>
-      <div class="tc-bars">
-        ${stages.map(r => `<div class="tc-row">
-          <span class="tc-k">${esc(r.k)}</span>
-          <span class="tc-track"><i style="width:${Math.max(4, Math.round(r.v / total * 100))}%;background:${r.c}"></i></span>
-          <span class="tc-v" style="color:${r.c}">${sec(r.v)}s</span>
-        </div>`).join('')}
-      </div>
-      <div class="tc-foot">
-        <span>${t.usage ? `用量 ${Number(t.usage.total || 0).toLocaleString()} tokens` : `约 ${Number(t.estTokens || 0).toLocaleString()} tokens（估）`}</span>
-        <span>${esc(t.at || '')}</span>
-      </div>
-    </div>`;
-  }
-
   function paneAll(R, g, lv) {
     const sc = R.score;
     return `
@@ -2908,63 +3037,219 @@
     <div class="upgrade-tip">每次练笔 80~150 字即可，贵在坚持：一周练两个专题，把素材本上的句子用进自己的作文里，能力就长在身上了。</div>`;
   }
 
-  /* ============ 润色手法四类标记（与参考版式一致，界面与导出共用） ============ */
-  const TECH_MARKS = [
-    { key: 'm1', name: '动作 / 细节描写', color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
-    { key: 'm2', name: '感官描写', color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
-    { key: 'm3', name: '修辞手法', color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
-    { key: 'm4', name: '议论改叙述 / 点题', color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
-  ];
-  const techMarkOf = k => TECH_MARKS.find(t => t.key === k) || null;
-  const stripTechMarks = t => String(t == null ? '' : t).replace(/<\/?m[1-4]>/g, '');
-  /* 把 <m1>…</m1> 标记转成彩色片段；标记外文字保持正文黑 */
-  function paintTechMarks(text, wrap) {
-    const safe = esc(String(text == null ? '' : text));
-    return safe
-      .replace(/&lt;(m[1-4])&gt;([\s\S]*?)&lt;\/\1&gt;/g, (all, k, inner) => wrap(k, inner))
-      .replace(/&lt;\/?m[1-4]&gt;/g, '');
+  /* ============ Tab4：润色后文章 ============ */
+  /* 演示稿 <m1>~<m4> 标记 → 与真实稿完全相同的 marks 结构，
+   * 这样两条路径共用同一个 highlightPara，彩色片段的字体、颜色、
+   * 底色与字重不可能再出现差异。 */
+  function demoMarksOf(paras) {
+    const out = [];
+    paras.forEach((raw, pi) => {
+      const s = String(raw == null ? '' : raw);
+      const re = /<m([1-4])>([^<]*)<\/m\1>/g;
+      let m;
+      let plain = '';
+      let cursor = 0;
+      while ((m = re.exec(s))) {
+        plain += s.slice(cursor, m.index);
+        const st = plain.length;
+        plain += m[2];
+        out.push({ para: pi, start: st, end: plain.length, key: ({ '1': 'action', '2': 'sense', '3': 'rhetoric', '4': 'theme' })[m[1]] || 'detail' });
+        cursor = m.index + m[0].length;
+      }
+      plain += s.slice(cursor);
+    });
+    return out;
   }
 
-  /* ============ Tab4：润色后文章 ============ */
+  /* ============ 润色手法四类标记（与参考版式一致，界面与导出共用） ============ */
+  const TECH_MARKS = [
+    { key: 'action',   alias: 'm1', name: '动作 / 细节描写', color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
+    { key: 'sense',    alias: 'm2', name: '感官描写',        color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
+    { key: 'rhetoric', alias: 'm3', name: '修辞手法',        color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
+    { key: 'theme',    alias: 'm4', name: '议论改叙述 / 点题', color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
+  ];
+  const techMarkOf = k => TECH_MARKS.find(t => t.key === k || t.alias === k) || null;
+  const stripTechMarks = t => String(t == null ? '' : t).replace(/<\/?m[1-4]>/g, '');
+
+  /* 润色稿分段规整（界面与导出共用同一函数，保证两边一致）：
+   * ① 首段只是重复标题（AI 常把题目当成第一段返回）→ 整段删除，只留居中题目；
+   * ② 段首带「标题。」→ 剥掉题目这截，保留后面的正文；
+   * ③ 段内相邻重复句（"可一旦这种沉迷变成常态，危险便会悄然降临。"连写两遍）→ 删掉重复的那一句；
+   * ④ 跨段重复的段首句 / 整段重复 → 后者删掉，避免同一句在文中出现两次。
+   * 去重只认"完全相同"的句子（忽略空白与标点差异），不动任何改写内容。 */
+  const bareTitle = t => String(t == null ? '' : t).replace(/[\s《》「」“”\"'‘’：:，,。！？；、·|—]/g, '');
+
+  /* 按句切分，保留句末标点，便于逐句比对 */
+  function splitSentences(text) {
+    const raw = String(text == null ? '' : text);
+    const out = [];
+    let buf = '';
+    for (let i = 0; i < raw.length; i++) {
+      buf += raw[i];
+      if (/[。！？…!?]/.test(raw[i])) { if (buf.trim()) out.push(buf.trim()); buf = ''; }
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  }
+
+  /* 句子归一：去掉空白与标点，只比"字面内容" */
+  const sentKey = s => String(s).replace(/[\s，。！？…、；：""''（）《》\-—·|,.;:!?"'()]/g, '');
+
+  /* 按标点切小句（分号也算边界）：模型把"半句"连写两遍时，按句切不开 */
+  function splitClauses(text) {
+    const raw = String(text == null ? '' : text);
+    const out = [];
+    let buf = '';
+    for (let i = 0; i < raw.length; i++) {
+      buf += raw[i];
+      if (/[。！？；…!?;]/.test(raw[i])) { if (buf.trim()) out.push(buf.trim()); buf = ''; }
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  }
+
+  /* 段内去重：删掉"完全相同"的重复小句。
+   * 判重键 = 去掉标点空白后的字面内容，且长度 ≥10 字——
+   * 短句重复可能是刻意的复沓/排比（"盼望着，盼望着"），不动；
+   * 长句完全重复一定是模型写重了，删掉第二次出现。 */
+  /* 段内去重：两档判定，避免误伤刻意的复沓（如「盼望着，盼望着」）。
+   * ① 整句重复（按 。！？ 切分）：完全相同且 ≥6 字 → 删掉后出现的那句。
+   * ② 长分句重复（按 。！？； 切分）：完全相同且 ≥10 字 → 删掉后出现的那截。
+   * 两层都不碰"同一句之内用逗号重复的短语"——那通常是修辞而非错误。 */
+  function dedupeSentences(text) {
+    const raw = String(text == null ? '' : text);
+    const sents = splitSentences(raw);            // 只按 。！？ 切
+    let out = raw, changed = false;
+
+    if (sents.length > 1) {
+      const seen = new Set();
+      const kept = [];
+      sents.forEach(x => {
+        const k = sentKey(x);
+        if (k.length >= 6 && seen.has(k)) { changed = true; return; }
+        if (k) seen.add(k);
+        kept.push(x);
+      });
+      if (changed) out = kept.join('');
+    }
+
+    /* ② 同一句内、用逗号/句号隔开的"尾部分句"重复：
+     *    如「…叶缘卷起来一点。叶缘卷起来一点。」
+     *    只在"重复分句之前已经有一长段内容"时才删——这时后一截纯属抄重；
+     *    而「盼望着，盼望着」整句都在重复、前面没有实质内容，属于修辞，保留。 */
+    const segs = out.split(/(?<=[，,。])/).filter(x => x.trim());
+    if (segs.length > 1) {
+      const seenS = new Set();
+      const keptS = [];
+      let hitS = false;
+      let contentLen = 0;      // 已保留的实质内容长度
+      segs.forEach(x => {
+        const k = sentKey(x);
+        if (k && contentLen >= 12 && seenS.has(k)) { hitS = true; return; }
+        if (k) seenS.add(k);
+        contentLen += k.length;
+        keptS.push(x);
+      });
+      if (hitS) { out = keptS.join(''); changed = true; }
+    }
+
+    /* ③ 再按分号检查长分句重复（跨句重复之外，还可能有"分号连接的半句"重复） */
+    const clauses = splitClauses(out);
+    if (clauses.length > 1) {
+      const seen2 = new Set();
+      const kept2 = [];
+      let hit2 = false;
+      clauses.forEach(c => {
+        const k = sentKey(c);
+        if (k.length >= 10 && seen2.has(k)) { hit2 = true; return; }
+        if (k) seen2.add(k);
+        kept2.push(c);
+      });
+      if (hit2) { out = kept2.join(''); changed = true; }
+    }
+    return changed ? out : raw;
+  }
+
+  function normalizePolishedParas(list, title) {
+    let out = (Array.isArray(list) ? list : [])
+      .map(x => String(x == null ? '' : x).trim()).filter(Boolean);
+
+    /* ③ 先做段内相邻重复句清理：与标题无关，任何稿子都适用 */
+    out = out.map(t => dedupeSentences(t)).filter(Boolean);
+
+    const T = bareTitle(title);
+    if (T) {
+      /* ① 整段就是题目：直接删 */
+      while (out.length && bareTitle(out[0]) === T) out = out.slice(1);
+      /* ② 段首是题目：只剥掉题目这一截 */
+      if (out.length) {
+        const raw = out[0];
+        if (bareTitle(raw).indexOf(T) === 0) {
+          let i = 0, kept = 0;
+          while (i < raw.length && kept < T.length) {
+            if (bareTitle(raw[i]) !== '') kept++;
+            i++;
+          }
+          while (i < raw.length && /[\s《》「」“”\"'‘’：:，,。！？；、·|—]/.test(raw[i])) i++;
+          const rest = raw.slice(i).trim();
+          if (rest) out[0] = rest; else out = out.slice(1);
+        }
+      }
+    }
+
+    /* ④ 跨段去重：
+     * a) 整段重复 → 保留第一次出现的那段；
+     * b) 后一段的段首句与前文任一句完全相同 → 删掉这个重复的段首句。
+     * 只处理"完全相同"的句子，改写过的不受影响。 */
+    const seenSent = new Set();
+    const seenPara = new Set();
+    const result = [];
+    for (const para of out) {
+      const pk = sentKey(para);
+      if (pk && seenPara.has(pk)) continue;          // 整段重复
+      if (pk) seenPara.add(pk);
+
+      let sents = splitClauses(para);
+      // 段首小句与已出现过的完全相同 → 去掉
+      while (sents.length > 1 && seenSent.has(sentKey(sents[0])) && sentKey(sents[0]).length >= REPEAT_MIN) {
+        sents = sents.slice(1);
+      }
+      const rest = sents.join('');
+      if (!rest.trim()) continue;
+      sents.forEach(x => { const k = sentKey(x); if (k) seenSent.add(k); });
+      result.push(rest.trim());
+    }
+    return result;
+  }
+
   function panePolish(R, g, d) {
     const P = R.essay.paras.filter(x => x && String(x).trim().length > 2);
     const title = R.essay.title || '未命名';
     const isDemo = !!(d && d.isDemo && typeof DEMO_POLISHED !== 'undefined');
 
-    let bodyParas, techList, words, inRange;
+    let bodyParas, techList, marks, words, inRange;
     if (isDemo) {
-      // 演示稿：使用与参考版式逐字一致的润色稿 + 四类手法标记
+      // 演示稿：与参考版式逐字一致的润色稿，标记转成统一 marks
       bodyParas = DEMO_POLISHED.slice();
+      marks = demoMarksOf(bodyParas);
+      bodyParas = bodyParas.map(t => stripTechMarks(t));
       techList = DEMO_TECHNIQUES.slice();
-      words = bodyParas.map(stripTechMarks).join('').replace(/\s/g, '').length;
+      words = bodyParas.join('').replace(/\s/g, '').length;
       const rg = (g && g.range) || [450, 550];
       inRange = words >= rg[0] && words <= rg[1];
     } else {
       // 真实稿：同一个润色器 + 同一份变更记录（与导出一致）
       const trace = [];
       const polished = buildPolished(R, P, trace);
+      marks = (trace && trace.marks) || [];
+      bodyParas = normalizePolishedParas(polished, title);
+      // 标题行被删掉后，marks 的段号要整体前移，否则彩块会落到别的段上
+      const shift = polished.length - bodyParas.length;
+      if (shift > 0) marks = marks.map(m => ({ ...m, para: m.para - shift })).filter(m => m.para >= 0);
       const notes = buildPolishNotes(trace, P, polished);
-      const marks = (trace && trace.marks) || [];
-      words = polished.join('').replace(/\s/g, '').length;
+      words = bodyParas.join('').replace(/\s/g, '').length;
       const rg = (g && g.range) || [0, 99999];
       inRange = words >= rg[0] && words <= rg[1];
-      const highlightPara = (text, pi) => {
-        const raw = String(text || '');
-        const list = marks.filter(m => m.para === pi).sort((a, b) => a.start - b.start);
-        if (!list.length) return esc(raw);
-        let out = '', cursor = 0;
-        list.forEach(m => {
-          const st = Math.max(cursor, Math.min(raw.length, m.start));
-          const en = Math.max(st, Math.min(raw.length, m.end));
-          if (en <= st) return;
-          if (st > cursor) out += esc(raw.slice(cursor, st));
-          out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
-          cursor = en;
-        });
-        if (cursor < raw.length) out += esc(raw.slice(cursor));
-        return out;
-      };
-      bodyParas = polished;
       /* 手法说明落到本文真实例句（与例图一致：手法名 + 具体改了什么），
        * 不再用"新增比喻与拟人"这类通用话术；detail 类不上手法清单 */
       const techDesc = {
@@ -2974,18 +3259,33 @@
         theme: (items) => '把空泛的议论改成具体落点，' + items.slice(0, 2).map(x => '「' + String(x).replace(/[。！？；]$/, '').slice(0, 24) + '」').join('、') + '，结尾照应前文不喊口号'
       };
       techList = notes.filter(n => techDesc[n.key]).map(n => ({
-        mark: ({ rhetoric: 'm3', sense: 'm2', action: 'm1', theme: 'm4' })[n.key],
+        mark: n.key,
         text: techDesc[n.key]((n.items || []).map(x => x.text || x))
       }));
-      var realRender = highlightPara;
     }
 
-    const paraHTML = (t, pi) => isDemo
-      ? paintTechMarks(t, (k, inner) => {
-          const mk = techMarkOf(k);
-          return mk ? `<span class="tech-span" style="--c:${mk.color}">${inner}</span>` : inner;
-        })
-      : realRender(t, pi);
+    /* 唯一的彩色片段渲染：两条路径共用 */
+    const paraHTML = (text, pi) => {
+      const raw = String(text || '');
+      const list = marks.filter(m => m.para === pi).sort((a, b) => a.start - b.start);
+      if (!list.length) return esc(raw);
+      let out = '', cursor = 0;
+      list.forEach(m => {
+        const st = Math.max(cursor, Math.min(raw.length, m.start));
+        const en = Math.max(st, Math.min(raw.length, m.end));
+        if (en <= st) return;
+        if (st > cursor) out += esc(raw.slice(cursor, st));
+        /* 只有四类手法上色，与演示稿完全一致；detail 类属"通用补写"，
+         * 不上色、保持正文原样，避免真实稿多出灰块而演示稿没有。 */
+        const rmk = techMarkOf(m.key);
+        out += rmk
+          ? `<span class="tech-span" style="--c:${rmk.color}">${esc(raw.slice(st, en))}</span>`
+          : esc(raw.slice(st, en));
+        cursor = en;
+      });
+      if (cursor < raw.length) out += esc(raw.slice(cursor));
+      return out;
+    };
 
     const techHTML = techList.length ? `<div class="tech-blk">
       <div class="tech-head"><h4>本次使用的润色手法</h4><i></i>
@@ -3003,7 +3303,7 @@
       <div class="card-h"><span class="ic" style="background:#f3ecfd;color:#8b5cf6">✎</span>润色后文章
         <span class="cnt">${words} 字 · ${g.name}要求 ${g.label || ''}</span></div>
       <div class="polish-paper">
-        <div class="pp-title">${esc(title)}</div>
+        ${title ? `<div class="pp-title">${esc(title)}</div>` : ''}
         ${bodyParas.map((t, pi) => `<p>${paraHTML(t, pi)}</p>`).join('')}
       </div>
       <div class="range-note${inRange ? '' : ' warn'}">${inRange ? '字数落在本年级区间内' : '字数偏离本年级要求区间，建议增删细节后重试'}</div>
@@ -3322,8 +3622,11 @@
         // 未批改状态：标题跟随姓名；已批改：保留原标题
         if (d.status !== 'done') d.name = state.note || '未命名';
         if (d.realImg) registerDraft(d);
+        /* 姓名变化会影响画板标题（未批改时）与报告里的姓名区，
+         * 两边都要跟着刷新，否则会出现"标签改了、报告还是旧名"。 */
         renderTabs();
-        if (!d.result) renderCanvas();
+        renderCanvas();
+        renderReport();
       }
     };
 
@@ -3436,6 +3739,20 @@
       new MutationObserver(keepVisible).observe(ft, { childList: true, subtree: true });
     }
 
+    /* 导出文件名：只用「学生姓名-作文题目」，不冠软件名。
+     * 姓名取左侧「学生姓名」输入框（即 d.note），题目取批改结果的标题；
+     * 任何一段缺失就只留另一段，两段都没有才用兜底名。 */
+    const exportBaseName = (d, o) => {
+      const clean = v => String(v == null ? '' : v)
+        .replace(/[\/:*?"<>|\s]+/g, '').trim();
+      const stu = clean((d && d.note) || (o && o.stu) || '');
+      // 没有题目就写「无标题作文」，不留空档
+      const title = clean((o && o.title) || (d && d.name) || '') || '无标题作文';
+      // 学生姓名-作文题目-批改报告（姓名没有就省略，题目没有写「无标题作文」）
+      const name = (stu ? stu + '-' : '') + title + '-批改报告';
+      return name.slice(0, 60);
+    };
+
     // 缩放
     const setZoom = z => { state.zoom = Math.min(1.4, Math.max(0.6, z)); renderCanvas(); };
     $('#toolZoomIn').onclick = () => setZoom(state.zoom + 0.1);
@@ -3453,7 +3770,7 @@
       if (btn) { btn.disabled = true; btn.classList.add('busy'); }
       try {
         const o = buildExportData(d);
-        const suggest = '紫微星-' + String(d.name || o.title || '作文批改报告').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
+        const suggest = exportBaseName(d, o);
         if (window.ZPNATIVE && window.ZPNATIVE.saveHTML) {
           // 桌面版：弹「保存到」对话框，用户自选位置后写盘；取消则静默结束
           const html = window.ZPEXPORT.buildDocument(o);
@@ -3498,7 +3815,7 @@
         const o = buildExportData(d);
         if (window.ZPNATIVE && window.ZPNATIVE.hasPDF) {
           const html = window.ZPEXPORT.buildDocument(o);
-          const suggest = '紫微星-' + String(d.name || o.title || '作文批改报告').replace(/[\\/:*?"<>|\s]/g, '_').slice(0, 40);
+          const suggest = exportBaseName(d, o);
           // 保存对话框在原生侧弹出；用户取消时返回 canceled，静默结束
           const res = await window.ZPNATIVE.exportPDF(html, suggest);
           if (res && res.canceled) return;
@@ -4225,8 +4542,16 @@
     // 润色稿：复用面板逻辑，同时记录本次改了哪些内容
     const polishTrace = [];
     const isDemoDoc = !!(d && d.isDemo && typeof DEMO_POLISHED !== 'undefined');
-    const polished = isDemoDoc ? DEMO_POLISHED.map(stripTechMarks) : buildPolished(R, P, polishTrace);
+    const rawPolished = isDemoDoc ? DEMO_POLISHED.map(stripTechMarks) : buildPolished(R, P, polishTrace);
+    /* 与界面同一个规整函数：AI 常把题目当成第一段返回，导出里也必须只留一个题目 */
+    const polished = normalizePolishedParas(rawPolished, R.essay.title || d.name || '');
     const polishNotes = buildPolishNotes(polishTrace, P, polished);
+    /* marks 的段号跟着前移，否则彩块会落到别的段上 */
+    const markShift = rawPolished.length - polished.length;
+    if (markShift > 0 && polishTrace && Array.isArray(polishTrace.marks)) {
+      polishTrace.marks = polishTrace.marks
+        .map(m => ({ ...m, para: m.para - markShift })).filter(m => m.para >= 0);
+    }
 
 
     // 小练笔：与右侧面板同源，按短板匹配通用练笔专题（内容与原文无关）
@@ -4485,8 +4810,8 @@
     const opened = state.docs.find(x => x.histId === rec.id);
     if (opened) {
       state.activeId = opened.id;
-      renderTabs(); renderCanvas(); renderReport(); syncDemoUI(); syncLeftFromDoc();
-      renderTabs();
+      syncLeftFromDoc();
+      renderTabs(); renderCanvas(); renderReport(); syncDemoUI();
       toast('已切换到该作文'); return;
     }
     const hasSnap = !!(rec.result && rec.result.essay);
@@ -4512,11 +4837,11 @@
     };
     state.docs.push(doc);
     state.activeId = doc.id;
-    state.gradeId = doc.gradeId; state.genreId = doc.genreId;
-    $('#noteInput').value = doc.note || '';
-    renderGenres(); renderGrades(); renderThumbs(); renderTabs();
-    renderCanvas(); renderReport(); syncDemoUI();
-    renderTabs();
+    /* 统一走 syncLeftFromDoc：年级、体裁、姓名、四维权重一次性对齐。
+     * 之前这里手写 gradeId/genreId 再逐个 render，漏了权重，
+     * 打开一份"权重与当前不同"的历史记录时，左侧权重会停在旧值。 */
+    syncLeftFromDoc();
+    renderThumbs(); renderTabs(); renderCanvas(); renderReport(); syncDemoUI();
     toast(hasSnap ? `已打开「${rec.name}」的批改记录` : `已载入「${rec.name}」`);
   }
 
@@ -4547,6 +4872,7 @@
     }
     const req = makeResult(d);
     d.result = req;             // 只挂结果给右栏用
+    if (!Array.isArray(d.demoAnnos) || !d.demoAnnos.length) d.demoAnnos = makeDemoAnnos();
     d.status = 'showcase';      // 画板状态不变：仍是展示态（四色批注照旧）
     if (!d.name || d.name === '未命名') d.name = DEMO_TITLE;
     d.gradeId = d.gradeId || 'g5';
@@ -4593,24 +4919,87 @@
   }
 
 
-  /* ================= 网页版启动画面 ================= */
+  /* ================= 网页版启动画面 =================
+   * 开屏不再自动关闭：初始化完成后把「进入工作台」按钮放开，
+   * 用户点了才淡出。不点就一直停在开屏页。 */
+  let _splashArmed = false;
+
+  const SPLASH_AUTO_MS = 3000;      // 就绪后 3 秒自动进入工作台
+  let _splashAutoTimer = null;
+  let _splashCountTimer = null;
+
+  function armSplash() {
+    const btn = document.getElementById('zpsEnterBtn');
+    const hint = document.getElementById('zpsHint');
+    if (!btn) return;
+    btn.disabled = false;
+    _splashArmed = true;
+    /* 不自动聚焦：按钮聚焦会带出一圈焦点边，开屏一打开就"挂着边"不好看。
+     * 键盘用户按 Tab 时仍会出现焦点环（:focus-visible）。 */
+    if (!hint) return;
+    let left = Math.ceil(SPLASH_AUTO_MS / 1000);
+    hint.textContent = left + ' 秒后自动进入，也可直接点击';
+    _splashCountTimer = setInterval(() => {
+      left -= 1;
+      if (left > 0) hint.textContent = left + ' 秒后自动进入，也可直接点击';
+      else { clearInterval(_splashCountTimer); _splashCountTimer = null; }
+    }, 1000);
+    _splashAutoTimer = setTimeout(() => goSplash(true), SPLASH_AUTO_MS);
+  }
+
   function hideSplash() {
     const el = document.getElementById('zp-splash');
     if (!el) return;
-    const t0 = window.__zpBootAt || Date.now();
-    const wait = Math.max(0, 1100 - (Date.now() - t0));
-    setTimeout(() => {
-      el.style.pointerEvents = 'none';       // 立刻放行点击
-      el.classList.add('zp-hide');
-      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 520);
-    }, wait);
+    el.classList.add('zp-hide');
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 520);
   }
-  window.__zpHideSplash = hideSplash;
+
+  /* 进入工作台：手动点击与 3 秒自动进入共用，先清掉倒计时再淡出 */
+  function goSplash(byAuto) {
+    const btn = document.getElementById('zpsEnterBtn');
+    if (!_splashArmed || (btn && btn.disabled)) return;
+    if (_splashAutoTimer) { clearTimeout(_splashAutoTimer); _splashAutoTimer = null; }
+    if (_splashCountTimer) { clearInterval(_splashCountTimer); _splashCountTimer = null; }
+    const hint = document.getElementById('zpsHint');
+    if (btn) btn.disabled = true;
+    if (hint) hint.textContent = byAuto ? '正在进入…' : '正在打开…';
+    hideSplash();
+  }
+
+  function bindSplashEnter() {
+    const btn = document.getElementById('zpsEnterBtn');
+    if (!btn || btn.dataset.bound) return;
+    /* 桌面版已有独立闪屏（带「进入工作台」按钮），主窗是隐藏加载的，
+     * 这里再叠一层网页开屏就重复了：直接把网页开屏收掉。 */
+    if (window.ZPNATIVE) {
+      /* 桌面版由独立闪屏负责「进入工作台」，这里把网页开屏摘掉。
+       * _splashArmed 保持 false：网页开屏已不存在，任何残留的
+       * goSplash 调用都应直接返回，而不是去 hideSplash 一个空节点。 */
+      const el = document.getElementById('zp-splash');
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      _splashArmed = false;
+      return;
+    }
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => goSplash(false));
+    document.addEventListener('keydown', e => {
+      if (!_splashArmed) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goSplash(false); }
+    });
+  }
+
+  window.__zpHideSplash = hideSplash;   // 兼容外部调用（如 Electron 侧）
+  window.__zpArmSplash = armSplash;
 
   window.__diag = [];
   window.addEventListener('error', e => window.__diag.push('ERR:' + e.message + ' @L' + e.lineno));
   document.addEventListener('DOMContentLoaded', function () {
-    try { init(); window.__diag.push('init-ok'); hideSplash(); }
+    try {
+      init();
+      window.__diag.push('init-ok');
+      bindSplashEnter();
+      if (!window.ZPNATIVE) armSplash();   // 放开按钮，等用户点击；不点就停在开屏
+    }
     catch (e) {
       window.__diag.push('INIT-THROW: ' + e.message);
       window.__diag.push((e.stack || '').split(String.fromCharCode(10)).slice(0, 3).join(' || '));

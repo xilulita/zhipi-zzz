@@ -90,6 +90,8 @@ ${dims}
    - 句式：长短句交替，情绪最重的地方用 4~8 字的短句单独成句；
    - 环境：开头补一句环境画面，结尾让景物跟着情绪一起变；
    - 保留原文所有真实情节与人物，不新增事件、不换主题、不写成另一个故事；
+   - **严禁重复（硬性要求）**：同一句话、同一段话只许出现一次。不要为了凑字数把某个句子或整段再抄一遍；写完后请自查，任何两个句子（含分号隔开的半句）若字面相同，必须删掉后一个。
+   - **不要在 polished 数组里放标题**：title 字段已经有题目了，polished 只放正文段落，第一段不要重复题目。
    - 分段数组，每项一段，纯文本不带 HTML，不要写"润色后"之类的标签。
 
 8. 只输出 JSON，不要任何解释文字、不要 markdown 代码块。
@@ -806,6 +808,77 @@ ${dims}
       ? raw.polished.map(x => String(x || '').trim()).filter(Boolean)
       : [];
 
+    /* 润色稿去重兜底：模型偶尔会把某句/某半句连写两遍（提示词已禁止，
+     * 这里再兜一层，确保任何入口拿到的 polished 都不含重复内容）。
+     * 判重只认"字面完全相同且长度≥10 字"，不动刻意的短句复沓；
+     * 只放正文、不留题目。 */
+    const dedupePolished = (arr) => {
+      const sentKey = t => String(t).replace(/[\s，。！？…、；：""''（）《》\-—·|,.;:!?"'()]/g, '');
+      /* 与界面同一套：整句重复 / 尾部短分句抄重 / 长分句重复，复沓保留 */
+      const dedupePara = (raw) => {
+        let out = raw, changed = false;
+        const sents = out.split(/(?<=[。！？…!?])/).filter(x => x.trim());
+        if (sents.length > 1) {
+          const seen = new Set(); const kept = [];
+          sents.forEach(x => {
+            const k = sentKey(x);
+            if (k.length >= 6 && seen.has(k)) { changed = true; return; }
+            if (k) seen.add(k);
+            kept.push(x);
+          });
+          if (changed) out = kept.join('');
+        }
+        const segs = out.split(/(?<=[，,。])/).filter(x => x.trim());
+        if (segs.length > 1) {
+          const seenS = new Set(); const keptS = [];
+          let hitS = false, len = 0;
+          segs.forEach(x => {
+            const k = sentKey(x);
+            if (k && len >= 12 && seenS.has(k)) { hitS = true; return; }
+            if (k) seenS.add(k);
+            len += k.length; keptS.push(x);
+          });
+          if (hitS) { out = keptS.join(''); changed = true; }
+        }
+        const cls = out.split(/(?<=[。！？；…!?;])/).filter(x => x.trim());
+        if (cls.length > 1) {
+          const seen2 = new Set(); const kept2 = [];
+          let hit2 = false;
+          cls.forEach(c => {
+            const k = sentKey(c);
+            if (k.length >= 10 && seen2.has(k)) { hit2 = true; return; }
+            if (k) seen2.add(k);
+            kept2.push(c);
+          });
+          if (hit2) { out = kept2.join(''); changed = true; }
+        }
+        return changed ? out : raw;
+      };
+      const seenPara = new Set();
+      const seenSent = new Set();
+      const out = [];
+      arr.forEach(paraRaw => {
+        const para = String(paraRaw == null ? '' : paraRaw).trim();
+        if (!para) return;
+        const cleaned = dedupePara(para);
+        const pk = sentKey(cleaned);
+        if (pk && seenPara.has(pk)) return;               // 整段重复
+        if (pk) seenPara.add(pk);
+        // 段首句与前文完全相同 → 去掉
+        let parts = cleaned.split(/(?<=[。！？；…!?;])/).filter(x => x.trim());
+        while (parts.length > 1 && sentKey(parts[0]).length >= 10 && seenSent.has(sentKey(parts[0]))) {
+          parts = parts.slice(1);
+        }
+        const text = parts.join('').trim();
+        if (!text) return;
+        parts.forEach(x => { const k = sentKey(x); if (k.length >= 10) seenSent.add(k); });
+        out.push(text);
+      });
+      return out;
+    };
+    const polishedFinalRaw = polished;
+    const polishedDeduped = dedupePolished(polished);
+
     /* 润色稿字数兜底：提示词已按年级区间约束，但模型仍可能写超。
      * 超过「本年级上限 + 50」时按句子从后往前删减，压回区间；
      * 少于下限时不动——硬凑字数会破坏文意，交给提示词约束即可。 */
@@ -830,7 +903,7 @@ ${dims}
       }
       return out.filter(x => x && x.trim());
     };
-    const polishedFinal = trimPolished(polished);
+    const polishedFinal = trimPolished(polishedDeduped);
 
     return {
       essay: { title: autoTitle(raw.title, paras, genreName), paras: paras.length ? paras : ['（未识别到正文）'], words, genre: genreName },

@@ -54,6 +54,7 @@ try {
 
 let mainWindow;
 let splashWindow;
+let mainWindowReady = false;
 
 function createSplash() {
   splashWindow = new BrowserWindow({
@@ -69,7 +70,12 @@ function createSplash() {
     skipTaskbar: true,
     center: true,
     icon: path.join(__dirname, '..', 'build', 'icon.ico'),
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      preload: path.join(__dirname, 'splash-preload.js')
+    }
   });
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
   splashWindow.once('ready-to-show', () => splashWindow && splashWindow.show());
@@ -109,17 +115,32 @@ function createMainWindow() {
     if (!url.startsWith('file:')) { event.preventDefault(); shell.openExternal(url); }
   });
 
+  /* 主窗就绪后**不立即显示**：让闪屏停留，等用户点「进入工作台」再切换。
+   * 这样开屏是一个可停留的欢迎页，而不是一闪而过的过场。
+   * 主窗此时已渲染完毕，点按钮后立刻 show()，不会出现白屏空档。 */
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    // 先显示主窗，再撤闪窗：顺序反了会出现「闪窗已关、主窗还没上」的白屏空档。
-    // 原先固定等 650ms，机器慢时等够也一样空，机器快时又白等。
-    mainWindow.show();
-    mainWindow.focus();
-    // 主窗首帧已就绪，闪窗再淡出，交接处不露底色
+    mainWindowReady = true;
+    // 通知闪屏：内容已就绪，按钮可以点了
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.webContents.send('zhipi:splash-ready');
+    }
+  });
+}
+
+/* 用户点击「进入工作台」：显示主窗 → 关掉闪屏
+ * 两个窗口的切换放在同一处，避免时序分散导致闪屏关了而主窗没上。 */
+function enterWorkspace() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  mainWindow.focus();
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    // 先淡出再关闭，交接不露底色
+    try { splashWindow.webContents.send('zhipi:splash-fade'); } catch (e) {}
     setTimeout(() => {
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
-    }, 120);
-  });
+    }, 260);
+  }
 }
 
 /* ===== PDF · 一键导出 =====
@@ -228,8 +249,27 @@ ipcMain.handle('zhipi:save-html', async (event, payload) => {
   return { canceled: false, filePath, fileName: path.basename(filePath), dir: path.dirname(filePath) };
 });
 
+/* 闪屏上的「进入工作台」按钮 → 切到主窗 */
+ipcMain.on('zhipi:splash-enter', () => {
+  enterWorkspace();
+});
+
+/* 闪屏被直接关闭（例如 Alt+F4）时，也要把主窗显示出来，
+ * 否则用户会遇到「闪屏没了、工作台也不出现」的空窗。 */
+function bindSplashSafety() {
+  if (!splashWindow) return;
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(() => {
   createSplash();
+  bindSplashSafety();
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

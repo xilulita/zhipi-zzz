@@ -26,6 +26,7 @@
       })),
       issues: (R.report.issues || []).map(it => ({
         title: it.title || it.t || '',
+        dim: it.dim || '',
         sev: it.sev || it.severity || 'low',
         desc: it.desc || it.d || it.detail || '',
         // quote/fix/steps 透传：供「具体问题与修改思路」的改后例句与定制三步思路使用
@@ -355,10 +356,6 @@
   .paper-txt mark.ph-sense{color:#1f6f8b;background:rgba(76,158,182,.16)}
   .paper-txt mark.ph-action{color:#b3541e;background:rgba(214,138,74,.18)}
   .paper-txt mark.ph-theme{color:#2f7d5c;background:rgba(72,150,116,.16)}
-  .paper-txt mark.ph-detail{color:#4a5262;background:#eceef5}
-  /* 演示稿：正文彩色片段（带 <m1>~<m4> 标记），行内底色 */
-  .paper-txt .tk{border-radius:2px;padding:0 1px;font-weight:600;
-    box-decoration-break:clone;-webkit-box-decoration-break:clone}
   /* 本次使用的润色手法（导出版）：标题行 + 圆点条目 + 胶囊标签 */
   .ptech-head{display:flex;align-items:center;gap:10px;margin:22px 0 10px}
   .ptech-head h4{margin:0;font-size:14px;font-weight:800;color:#2b3038;white-space:nowrap}
@@ -372,7 +369,7 @@
   .ptech-list b{display:inline-block;font-size:11.4px;font-weight:600;color:var(--c);
     background:color-mix(in srgb,var(--c) 10%,#fff);border:1px solid color-mix(in srgb,var(--c) 26%,#e8e2d4);
     border-radius:4px;padding:0 5px;margin-right:5px;vertical-align:1px}
-  @media print{ .paper-txt mark.ph,.paper-txt .tk{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
+  @media print{ .paper-txt mark.ph{ -webkit-print-color-adjust:exact; print-color-adjust:exact } }
   /* ---- 本次润色说明 ---- */
   .pn-head{font-size:14px;font-weight:800;color:#2a2c35;margin:22px 0 5px;
     padding-left:9px;border-left:3.5px solid #4aa96c;line-height:1.3}
@@ -542,7 +539,7 @@
 
     return pages.map((pg, i) => ({
       id: 'board' + i,
-      html: boardPageHTML(pg, pages.length, { availW: o.boardW, availH: o.boardH }),
+      html: boardPageHTML(pg, pages.length, { availW: o.boardW || BOARD.w, availH: o.boardH || BOARD.h }),
       atomic: true,          // 白板不可切分
       board: true,           // 标记：渲染后需要做真实测量排版
       fullPage: true,        // 每页白板独占一页
@@ -561,46 +558,63 @@
 
 /* 页面尺寸（96dpi 像素） —— 与软件内 board-frame 同一视觉语言 */
 const PAGE = { w: 794, h: 1123 };
+  /* 白板可用区：把 A4 的页边距与区块内边距都扣掉后剩下的像素，
+   * 纸张与批注列就铺满这块区域，两侧白边只剩走线间隙。 */
+  const BOARD = {
+    w: Math.round(PAGE.w - 23 * 2 - 6 * 2),   // 794 - 打印边距 - 区块内边距 ≈ 736
+    h: Math.round(PAGE.h - 23 * 2 - 22)       // 1123 - 上下页边距 - 区块上下 padding ≈ 1055
+  };
 
 /* 构图：算出纸张宽高与两侧列宽，保证 纸 + 两列 + 间隙 ≤ 可用宽 */
 function boardGeometry(pg, opts) {
   const o = opts || {};
-  const availW = o.availW || 742;
+  const availW = o.availW || 900;
   const availH = o.availH || 1000;
   const ratio = (pg.h && pg.w) ? (pg.h / pg.w) : 1.35;
   const safeRatio = Math.max(0.2, ratio);
 
-  const GAP = 22;                                  // 卡片与纸张之间的留白（走线空间）
-  const wide = safeRatio < 0.9;
+  const GAP = o.gap == null ? 12 : o.gap;          // 卡片与纸张之间的留白（走线空间）
+  // 纸张高度上限：占可用高的 96%，给卡片上下溢出留一点余地
+  /* 纸张高度上限：白板页是独立整页，纸张可以几乎占满整页高度，
+   * 只留很少余量给两侧卡片的溢出与页码。 */
+  const maxPaperH = o.maxPaperH || Math.round(availH * 0.995);
 
-  // 纸张高度先定：占可用高的 86%，给卡片上下溢出留余地
-  const maxPaperH = o.maxPaperH || Math.round(availH * 0.98);
+  /* 目标：两侧白边尽可能窄，同时图片完整不裁切、纸张与批注都够大。
+   *
+   * 分配规则（高度是硬约束，宽度在高度允许范围内分配）：
+   *  · 纸张宽度 = min(按高度算出的最大宽度, 可用宽的 54%)
+   *    ——上限用 54% 而不是"能多宽就多宽"：竖幅稿按高度算出的宽度会接近
+   *    可用宽，纸张会挤掉批注列；54% 能让纸张够大、批注列也读得清。
+   *  · 余下宽度全部分给两列，白边只剩下纸张与卡片之间的走线间隙。
+   *  · 批注列低于可读下限时，把纸收窄，优先保证批注可读。 */
+  const MIN_COL = o.minCol || 132;                 // 批注列最小可用宽
+  const PAPER_RATIO = o.paperRatio || 0.62;        // 纸张占可用宽的目标比例
 
-  // 由高度按比例反推纸张宽（保持原图比例，绝不拉伸）
-  let paperH = maxPaperH;
-  let paperW = Math.round(paperH / safeRatio);
+  const byH = maxPaperH / safeRatio;               // 按高度算出的最大纸宽
+  const byRatioW = Math.round(availW * PAPER_RATIO);
 
-  // 横向上限：竖幅图占可用宽 60%，宽幅图占 56%
-  const targetRatioW = wide ? 0.54 : 0.56;
-  const wantW = Math.round(availW * targetRatioW);
-  paperW = Math.max(240, Math.min(paperW, wantW));
-  paperH = Math.round(paperW * safeRatio);
+  let paperW = Math.floor(Math.min(byH, byRatioW));
+  paperW = Math.max(240, paperW);
+  let paperH = Math.round(paperW * safeRatio);
   if (paperH > maxPaperH) { paperH = maxPaperH; paperW = Math.round(paperH / safeRatio); }
 
-  // 余下宽度严格平分给两列 —— 纸张+两列+两间隙 == 可用宽，flex 不再压缩纸张
+  // 余下宽度平分给两列 —— 直接吃满可用宽，两侧只留 GAP
   let sideW = Math.floor((availW - paperW - GAP * 2) / 2);
-  if (sideW < 132) {
-    sideW = 132;
+  if (sideW < MIN_COL) {
+    sideW = MIN_COL;
     paperW = Math.max(240, availW - sideW * 2 - GAP * 2);
     paperH = Math.round(paperW * safeRatio);
-    if (paperH > maxPaperH) { paperH = maxPaperH; paperW = Math.round(paperH / safeRatio); }
+    if (paperH > maxPaperH) {
+      paperH = maxPaperH; paperW = Math.round(paperH / safeRatio);
+      sideW = Math.max(MIN_COL, Math.floor((availW - paperW - GAP * 2) / 2));
+    }
   }
 
   return {
     availW, availH, colW: sideW, gap: GAP, ratio: safeRatio,
     paperW, paperH,
     colH: Math.max(paperH, availH),
-    totalW: paperW + sideW * 2 + GAP * 2
+    totalW: Math.min(availW, paperW + sideW * 2 + GAP * 2)
   };
 }
 
@@ -936,37 +950,58 @@ function hexA(hex, a) {
       }
     ];
 
-    /* ---------- 二、具体问题与修改思路 ---------- */
+    /* ---------- 二、具体问题与修改思路 ----------
+     * 每条思路必须"针对这一句"给出，不能所有问题共用同一套通用三步。
+     * 做法：优先用批改结果自带的 steps（AI 已按本句写过）；
+     * 没有就按问题维度（内容/结构/语言）生成，并把原句的关键片段嵌进步骤里，
+     * 保证三条思路彼此不同、且读者看得出在改哪一句。 */
+    const segOf = (it) => {
+      const q = String(it.quote || '').replace(/\s+/g, '');
+      if (q) return q.length > 22 ? q.slice(0, 22) + '…' : q;
+      const d = String(it.desc || '');
+      const m = d.match(/[“"]([^”"]{4,24})[”"]/);
+      return m ? m[1] : '';
+    };
     const fixSteps = (it) => {
       const t = (it.title || '') + (it.desc || '');
-      if (/长句|断句|逗号|40|45/.test(t)) {
-        return ['先把这句话单独抄到一张纸上，找到“可 / 但 / 于是 / 却”这类转折词。',
-          '在转折词前面断开，前后各留半句，读一遍，不喘气就对了。',
-          '断开后检查前半句主语是否还在，没有就把主语补上。'];
+      const seg = segOf(it);
+      const q = seg ? `「${seg}」` : '这一句';
+      const dim = String(it.dim || '').toLowerCase();
+
+      /* 维度优先：AI 会给 content/structure/language，比关键词更可靠 */
+      if (dim === 'content' || /立意|选材|中心|主题|内容|素材|细节|画面|具体|空泛|笼统/.test(t)) {
+        return [
+          `先把${q}划出来，问自己：这里想让读者"看见"什么？把它写成一句看得见的话。`,
+          `再补一个只有你知道的小动作或小物件（手怎么放、东西什么磨损），替掉"很感动/很好"这类结论词。`,
+          `最后把改好的这句读给同桌听，若他能说出画面，就改对了。`
+        ];
       }
-      if (/错别字|病句|的|地|得|标点|成分|助词/.test(t)) {
-        return ['把原句抄下来，逐字读一遍，标出可疑处。',
-          '按“修饰名词用的、修饰动词用地、补充说明用得”逐处核对。',
-          '改完再读一遍，确认句子成分完整、不残缺。'];
+      if (dim === 'structure' || /结构|层次|段落|详略|过渡|开头|结尾|收束|呼应|顺序/.test(t)) {
+        return [
+          `看${q}在本段的位置：它是收束还是铺垫？若两样都想要，就拆成两句。`,
+          `把这一段里最该详写的动作单独成句，其余压成半句，段落就有了轻重。`,
+          `结尾处让开头出现过的物或景再出现一次，${q}自然就有了回环。`
+        ];
       }
-      if (/情绪|概括|抽象|感动|难过|开心|紧张/.test(t)) {
-        return ['把“我很感动 / 很难过”这类概括词先划掉。',
-          '问自己：那一刻手在做什么？眼睛看见了什么？喉咙、鼻子什么感觉？',
-          '选一个最清楚的身体反应写进去，比如“鼻子一酸，眼眶忽然热了一下”。'];
+      if (dim === 'language' || /语言|用词|搭配|句式|修辞|比喻|长句|断句|节奏|重复|啰嗦/.test(t)) {
+        return [
+          `把${q}单独抄一行，逐字读，标出读起来卡住的那个词。`,
+          `卡住处换成一个具体的动作或声音（如"嗒嗒地响""指节发白"），不要换成形容词。`,
+          `改完整句再读一遍，若一口气读得完、意思没变，就保留这一版。`
+        ];
       }
-      if (/重复|啰嗦|删|冗余/.test(t)) {
-        return ['找出与前文意思相同的句子，只保留最有力的一句。',
-          '删掉后读上下文，若跳跃就补半句过渡。',
-          '删完再看字数，若明显变短，把省下的篇幅补给细节。'];
+      if (/错别字|病句|标点|的|地|得|成分|助词/.test(t)) {
+        return [
+          `把${q}誊到本子上，逐字核对"的/地/得"与标点。`,
+          `修饰名词用"的"，修饰动词用"地"，补充说明用"得"。`,
+          `改完把整句读一遍，确认主语、谓语都在，没有残缺。`
+        ];
       }
-      if (/节奏|平|起伏|层次/.test(t)) {
-        return ['把这一段按句子数一数，如果连续三句长度接近，就拆一句短的。',
-          '在最关键处单独成句，用短句制造停顿。',
-          '段与段之间留一个空行或一句过渡，让读者喘口气。'];
-      }
-      return ['先定位问题句，把它单独抄出来。',
-        '按“是什么问题 → 怎么改 → 改完读一遍”三步处理。',
-        '改完放回原文，确认与上下文衔接自然。'];
+      return [
+        `先定位${q}，把它单独抄出来，别和上下文混在一起看。`,
+        `问自己这句想让人记住什么，只保留那一个信息，其余删掉或挪到下一句。`,
+        `改完放回原文读一遍，衔接不顺就补半句过渡。`
+      ];
     };
 
     /* 「具体问题与修改思路」只针对表达内容，不收录错别字/标点类订正。
@@ -974,12 +1009,59 @@ function hexA(hex, a) {
     const contentIssues = issues.filter(it => !/错别字|别字|错字|标点|的地得|“的\/地\/得”/i.test(
       [it.title, it.desc, it.dim].filter(Boolean).join(' ')
     ));
+    /* 例句兜底：AI 没给 fix 时，用原句自身推一条"看得出差别"的改法，
+     * 保证每条问题下面都有「改后例句」，不留空。 */
+    const makeFixDemo = (it) => {
+      const q = String(it.quote || '').replace(/\s+/g, '');
+      const src = q || (String(it.desc || '').match(/[“"]([^”"]{4,40})[”"]/) || [])[1] || '';
+      if (!src) return '';
+      const dim = String(it.dim || '').toLowerCase();
+      const t = (it.title || '') + (it.desc || '') + (it.dim || '');
+      // 长句：在转折处断开
+      const turn = src.match(/(.{10,}?)(可|但是|可是|于是|却|因为|所以|只是|而且)(.{6,})/);
+      if (/长句|断句|逗号|一口气/.test(t) && turn) {
+        return turn[1].replace(/[，,]$/, '') + '。' + turn[2] + turn[3];
+      }
+      // 情绪概括词：换成身体反应
+      const emo = src.match(/(很|非常|特别|十分)(感动|难过|开心|高兴|紧张|害怕|惭愧|温暖)/);
+      if (emo) {
+        const body = { 感动: '鼻子一酸，眼眶忽然热了一下', 难过: '喉咙像塞了棉花', 开心: '嘴角压不住地往上翘',
+          高兴: '忍不住笑出声，又赶紧捂住嘴', 紧张: '手心全是汗，指尖发凉', 害怕: '后背沁出一层薄汗',
+          惭愧: '脸一直烧到耳根', 温暖: '胸口像被谁轻轻按了一下' }[emo[2]] || '手心发凉';
+        return src.replace(emo[0], body);
+      }
+      // 重复/啰嗦：砍掉后半句
+      if (/重复|啰嗦|冗余|删/.test(t)) {
+        const parts = src.split(/[，,；;]/).filter(x => x.trim());
+        return parts.length > 1 ? parts.slice(0, Math.max(1, parts.length - 1)).join('，') : src;
+      }
+      // 结尾口号：落回实物
+      if (/口号|议论|总结|结尾|收束/.test(t)) {
+        return '（改为停在画面上，不再解释道理）' + src.replace(/我明白了|我懂得了|这就是|让我明白/g, '');
+      }
+      // 兜底：把"很/非常"这类评价词换成可感细节
+      if (/很|非常|特别/.test(src)) return src.replace(/(很|非常|特别)([^，。]{1,6})/g, (m, a, b) => b + '得能看见');
+      /* 仍与原句一致时，给它一个真正改动过的版本——
+       * 让读者一眼看出"改前 → 改后"的差别，而不是原样复述。 */
+      const s2 = src.replace(/[。！？]$/, '');
+      if (dim === 'content' || /内容|细节|画面|具体|空泛|笼统|情绪|停住|瞬间/.test(t)) {
+        return s2 + '——手已经撑在桌沿，又慢慢收回来，指尖在木纹上蹭了一下。';
+      }
+      if (/结构|层次|段落|详略|展开|过渡/.test(t)) {
+        return s2 + '；肩一高一低地压着，围裙的带子松了半截。';
+      }
+      if (dim === 'language' || /语言|句式|节奏|重复|用词/.test(t)) {
+        return src.replace(/，一遍一遍地/, '，一遍，又一遍，') || (s2 + '，一句一句地压过来。');
+      }
+      return s2 + '，比原来多了一层可看见的细节。';
+    };
     const fixes = contentIssues.slice(0, 3).map((it, i) => ({
       t: it.title || `问题 ${i + 1}`,
       d: it.desc || '',
+      dim: it.dim || '',
       quote: it.quote || '',
-      fix: it.fix || '',
-      // 条目自带分步思路时优先使用（演示稿与定制批改），否则按问题类型推导
+      fix: it.fix || makeFixDemo(it),
+      // 条目自带分步思路时优先使用（演示稿与定制批改），否则按问题维度 + 本句推导
       steps: (Array.isArray(it.steps) && it.steps.length) ? it.steps.slice(0, 3) : fixSteps(it)
     }));
     return { diagLine, nodes, fixes };
@@ -1082,6 +1164,9 @@ function hexA(hex, a) {
       const en = Math.max(st, Math.min(raw.length, m.end));
       if (en <= st) return;
       if (st > cursor) out += esc(raw.slice(cursor, st));
+      /* 只对四类手法上色；detail 类（通用补写）保持正文原样，与界面一致 */
+      const TECHS = { action: 1, sense: 1, rhetoric: 1, theme: 1 };
+      if (!TECHS[m.key]) { out += esc(raw.slice(st, en)); return; }
       out += `<mark class="ph ph-${m.key}">${esc(raw.slice(st, en))}</mark>`;
       cursor = en;
     });
@@ -1091,20 +1176,140 @@ function hexA(hex, a) {
 
   /* 演示稿导出：与界面同一份四类手法定义，保证导出与屏幕颜色一致 */
   const EXPORT_TECH = [
-    { key: 'm1', name: '动作 / 细节描写', color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
-    { key: 'm2', name: '感官描写', color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
-    { key: 'm3', name: '修辞手法', color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
-    { key: 'm4', name: '议论改叙述 / 点题', color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
+    { key: 'action',   alias: 'm1', name: '动作 / 细节描写',      color: '#b3541e', bg: 'rgba(214,138,74,.18)' },
+    { key: 'sense',    alias: 'm2', name: '感官描写',             color: '#1f6f8b', bg: 'rgba(76,158,182,.16)' },
+    { key: 'rhetoric', alias: 'm3', name: '修辞手法',             color: '#7a4fa8', bg: 'rgba(139,110,192,.16)' },
+    { key: 'theme',    alias: 'm4', name: '议论改叙述 / 点题',    color: '#2f7d5c', bg: 'rgba(72,150,116,.16)' }
   ];
-  const exportTechOf = k => EXPORT_TECH.find(t => t.key === k) || null;
+  /* 同时接受语义键（rhetoric/action/…）与旧标记键（m1~m4），
+   * 两套写法都能查到同一配色与名称，不会再出现"标签消失"。 */
+  const exportTechOf = k => EXPORT_TECH.find(t => t.key === k || t.alias === k) || null;
+  /* 演示稿 <m1>~<m4> → 与真实稿完全相同的 mark.ph 结构，
+   * 配色取同一张表、字重也不再加粗，导出与屏幕观感一致。 */
+  const DEMO_KEY = { m1: 'action', m2: 'sense', m3: 'rhetoric', m4: 'theme' };
   function paintDemoTech(text) {
     const safe = esc(String(text == null ? '' : text));
     return safe
-      .replace(/&lt;(m[1-4])&gt;([\s\S]*?)&lt;\/\1&gt;/g, (all, k, inner) => {
-        const mk = exportTechOf(k);
-        return mk ? `<span class="tk" style="color:${mk.color};background:${mk.bg}">${inner}</span>` : inner;
-      })
+      .replace(/&lt;(m[1-4])&gt;([\s\S]*?)&lt;\/\1&gt;/g, (all, k, inner) =>
+        `<mark class="ph ph-${DEMO_KEY[k]}">${inner}</mark>`)
       .replace(/&lt;\/?m[1-4]&gt;/g, '');
+  }
+
+  /* 与界面同一套规整：AI 常把题目当成第一段返回，
+   * 导出里也必须只留一个居中的题目，正文不再重复。 */
+  const bareTitle = t => String(t == null ? '' : t).replace(/[\s《》「」“”"'‘’：:，,。！？；、·|\u2014]/g, '');
+  const sentKeyX = t => String(t).replace(/[\s，。！？…、；：""''（）《》\-—·|,.;:!?"'()]/g, '');
+  const splitSentX = t => String(t == null ? '' : t).split(/(?<=[。！？…!?])/).filter(x => x.trim());
+  const splitClauseX = t => String(t == null ? '' : t).split(/(?<=[。！？；…!?;])/).filter(x => x.trim());
+  /* 段内去重：与界面同一套判定（整句重复 / 长分句重复 / 尾部短分句抄重），
+   * 刻意复沓（如「盼望着，盼望着」）保留。 */
+  function dedupeParaX(text) {
+    const raw = String(text == null ? '' : text);
+    let out = raw, changed = false;
+
+    const sents = splitSentX(raw);
+    if (sents.length > 1) {
+      const seen = new Set();
+      const kept = [];
+      sents.forEach(x => {
+        const k = sentKeyX(x);
+        if (k.length >= 6 && seen.has(k)) { changed = true; return; }
+        if (k) seen.add(k);
+        kept.push(x);
+      });
+      if (changed) out = kept.join('');
+    }
+
+    const segs = out.split(/(?<=[，,。])/).filter(x => x.trim());
+    if (segs.length > 1) {
+      const seenS = new Set();
+      const keptS = [];
+      let hitS = false, contentLen = 0;
+      segs.forEach(x => {
+        const k = sentKeyX(x);
+        if (k && contentLen >= 12 && seenS.has(k)) { hitS = true; return; }
+        if (k) seenS.add(k);
+        contentLen += k.length;
+        keptS.push(x);
+      });
+      if (hitS) { out = keptS.join(''); changed = true; }
+    }
+
+    const clauses = splitClauseX(out);
+    if (clauses.length > 1) {
+      const seen2 = new Set();
+      const kept2 = [];
+      let hit2 = false;
+      clauses.forEach(c => {
+        const k = sentKeyX(c);
+        if (k.length >= 10 && seen2.has(k)) { hit2 = true; return; }
+        if (k) seen2.add(k);
+        kept2.push(c);
+      });
+      if (hit2) { out = kept2.join(''); changed = true; }
+    }
+    return changed ? out : raw;
+  }
+
+  function normalizePolished(list, title) {
+    let out = (Array.isArray(list) ? list : [])
+      .map(x => String(x == null ? '' : x).trim()).filter(Boolean);
+    /* 段内重复句先清掉：与标题无关，任何稿子都适用 */
+    out = out.map(t => dedupeParaX(t)).filter(Boolean);
+    const T = bareTitle(title);
+    if (!T) return dedupeAcross(out);
+    if (out.length) {
+      const raw = out[0];
+      if (bareTitle(raw).indexOf(T) === 0) {
+        let i = 0, kept = 0;
+        while (i < raw.length && kept < T.length) {
+          if (bareTitle(raw[i]) !== '') kept++;
+          i++;
+        }
+        while (i < raw.length && /[\s《》「」“”"'‘’：:，,。！？；、·|\u2014]/.test(raw[i])) i++;
+        const rest = raw.slice(i).trim();
+        if (rest) out[0] = rest; else out = out.slice(1);
+      }
+    }
+    return dedupeAcross(out);
+  }
+
+  /* 跨段去重：整段重复保留首段；后段段首句与前文完全相同则去掉该句 */
+  function dedupeAcross(out) {
+    const seenSent = new Set();
+    const seenPara = new Set();
+    const result = [];
+    out.forEach(paraRaw => {
+      const para = String(paraRaw).trim();
+      if (!para) return;
+      const pk = sentKeyX(para);
+      if (pk && seenPara.has(pk)) return;
+      if (pk) seenPara.add(pk);
+      let parts = splitClauseX(para);
+      while (parts.length > 1 && sentKeyX(parts[0]).length >= 10 && seenSent.has(sentKeyX(parts[0]))) {
+        parts = parts.slice(1);
+      }
+      const rest = parts.join('').trim();
+      if (!rest) return;
+      parts.forEach(x => { const k = sentKeyX(x); if (k.length >= 10) seenSent.add(k); });
+      result.push(rest);
+    });
+    return result;
+  }
+
+  /* 与界面同一口径的手法说明：手法名 + 本文具体改了什么（带例句） */
+  function descForTech(key, items, fallback) {
+    const pick2 = (items || []).slice(0, 2)
+      .map(x => '「' + String(x).replace(/[。！？；，]$/, '').slice(0, 24) + '」')
+      .join('、');
+    const tpl = {
+      rhetoric: '运用比喻修辞，' + pick2 + '，让抽象的感受变成可看的画面',
+      sense: '补进声音与触感，' + pick2 + '，让场景可听可感',
+      action: '补充动作细节，' + pick2 + '，人物形象更具体可感',
+      theme: '把空泛的议论改成具体落点，' + pick2 + '，结尾照应前文不喊口号'
+    };
+    if (items && items.length) return tpl[key] || String(fallback || '');
+    return String(fallback || '');
   }
 
   function secPolish(o) {
@@ -1128,16 +1333,37 @@ function hexA(hex, a) {
     }
     return `<div class="sec">润色后文章${lvTag ? `<span class="tag">${esc(lvTag)}</span>` : ''}</div>
       <div class="paper-txt"><div class="t">${esc(o.title)}</div>
-        ${o.polished.map((t, pi) => `<p>${hlText(t, pi, o.polishMarks)}</p>`).join('')}</div>
-      ${notes.length ? `<div class="pn-head">本次润色说明</div>
-      <div class="pn-sub">以下为本次润色实际改动的方向，原文的意思、顺序与人物均未改动。</div>
-      <div class="pn-grid">
-        ${notes.map(n => `<div class="pn k-${n.key || 'plain'}">
-          <div class="pn-n">${esc(n.name)}</div>
-          <div class="pn-d">${esc(n.desc)}</div>
-
-        </div>`).join('')}
-      </div>` : ''}`;
+        ${(() => {
+          const raw = o.polished || [];
+          const body = normalizePolished(raw, o.title);
+          const shift = raw.length - body.length;
+          const marks = shift > 0
+            ? (o.polishMarks || []).map(m => ({ ...m, para: m.para - shift })).filter(m => m.para >= 0)
+            : (o.polishMarks || []);
+          return body.map((t, pi) => `<p>${hlText(t, pi, marks)}</p>`).join('');
+        })()}</div>
+      ${(() => {
+        /* 与界面 Tab4 同构：彩色手法标签 + 条目清单。
+         * 手法名与配色取同一张表，marks 用的是语义键（rhetoric/action/…），
+         * 这里按 key 查表，查不到就不显示标签，绝不留空壳。 */
+        const TECH_KEY = { rhetoric: 'rhetoric', sense: 'sense', action: 'action', theme: 'theme' };
+        const techNotes = notes
+          .filter(n => TECH_KEY[n.key])
+          .map(n => {
+            const mk = exportTechOf(n.key);
+            const items = (n.items || []).map(x => (typeof x === 'string' ? x : (x && x.text) || '')).filter(Boolean);
+            return {
+              mk,
+              name: mk ? mk.name : n.name,
+              text: descForTech(n.key, items, n.desc)
+            };
+          });
+        if (!techNotes.length) return '';
+        return `<div class="ptech-head"><h4>本次使用的润色手法</h4><i></i><span>${techNotes.length} 条 · 对照原文查看改动</span></div>
+        <ul class="ptech-list">
+          ${techNotes.map(t => `<li${t.mk ? ` style="--c:${t.mk.color}"` : ''}>${t.mk ? `<b style="--c:${t.mk.color}">${esc(t.name)}</b>` : ''}${esc(t.text)}</li>`).join('')}
+        </ul>`;
+      })()}`;
   }
 
   function secFooter(o) { return ''; }
@@ -1166,7 +1392,7 @@ function hexA(hex, a) {
 
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>${esc(o.title)} · 紫微星</title>
+<title>${esc(o.title)}</title>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -1180,8 +1406,8 @@ function hexA(hex, a) {
     margin:0 auto;background:#fff;position:relative;
   }
   /* 正文类区块限制在 794 的阅读宽度内并居中 */
-  .blk{padding:22px 26px 0;max-width:794px;margin:0 auto}
-  .blk.sec-board{padding:20px 26px 8px}
+  .blk{padding:20px 14px 0;max-width:794px;margin:0 auto}
+  .blk.sec-board{padding:14px 6px 8px}
   .blk:last-child{padding-bottom:34px}
   /* 白板区作为开篇，宽度跟随三栏内容，不额外限宽 */
   .blk.sec-board{max-width:none}
@@ -1195,7 +1421,7 @@ function hexA(hex, a) {
   .blk.sec-board .pg-cap{margin:12px 0 34px}
   .blk.sec-board .pg-cap:last-child{margin-bottom:6px}
 
-  @page{size:A4 portrait;margin:10mm}
+  @page{size:A4 portrait;margin:6mm}
   @media print{
     /* 打印/导出 PDF：白底、去阴影，避免深色背景大面积耗墨 */
     body{background:#fff}
@@ -1366,8 +1592,8 @@ function hexA(hex, a) {
       : [{ img: o.img, w: o.imgW, h: o.imgH, page: 1, annos: o.annos }];
     // 流式布局：宽度扣掉左右内边距，可用高度按一屏常见高度定基准，
     // 纸张按原图比例撑开，不做固定页高限制
-    const availW = o.availW || 754;
-    const availH = o.availH || 960;
+    const availW = o.availW || BOARD.w;
+    const availH = o.availH || BOARD.h;
     return pages.map(pg => boardPageHTML(pg, pages.length, { availW, availH }));
   }
 
@@ -1380,7 +1606,10 @@ function hexA(hex, a) {
   function exportHTML(o, opts) {
     const html = buildDocument(o);
     const blob = new Blob(['\ufeff' + html], { type: 'text/html;charset=utf-8' });
-    const name = `紫微星-${safe(o.title)}.html`;
+    const clean = v => String(v == null ? '' : v).replace(/[\/:*?"<>|\s]+/g, '').trim();
+    const stu = clean(o.stu);
+    const title = clean(o.title) || '无标题作文';
+    const name = (stu ? stu + '-' : '') + title + '-批改报告.html';
 
     dl(blob, name);
   }
